@@ -1,0 +1,70 @@
+"""Read-only administrative API endpoints for append-only audit events."""
+
+from __future__ import annotations
+
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.database import get_db_session
+from app.models.enums import PolicyDecision, VerificationStatus
+from app.schemas.audit import AuditEventResponse
+from app.schemas.common import PaginatedResponse
+from app.security.authorization import require_admin
+from app.services.audit_service import AuditService
+
+router = APIRouter(
+    prefix="/api/v1/audit-events",
+    tags=["Audit Events"],
+    dependencies=[Depends(require_admin)],
+)
+_audit_service = AuditService()
+
+
+@router.get(
+    "",
+    response_model=PaginatedResponse[AuditEventResponse],
+    summary="List immutable gateway audit events",
+)
+async def list_audit_events(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    agent_id: UUID | None = Query(default=None),
+    tool_name: str | None = Query(default=None),
+    decision: PolicyDecision | None = Query(default=None),
+    correlation_id: str | None = Query(default=None),
+    verification_status: VerificationStatus | None = Query(default=None),
+    session: AsyncSession = Depends(get_db_session),
+) -> PaginatedResponse[AuditEventResponse]:
+    """Query append-only gateway audit records (update/delete are intentionally unavailable)."""
+    items, total = await _audit_service.list_events(
+        session,
+        page=page,
+        page_size=page_size,
+        agent_id=agent_id,
+        tool_name=tool_name,
+        decision=decision,
+        correlation_id=correlation_id,
+        verification_status=verification_status,
+    )
+    return PaginatedResponse.create(
+        items=[AuditEventResponse.model_validate(item) for item in items],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get(
+    "/{event_id}",
+    response_model=AuditEventResponse,
+    summary="Get a single audit event",
+)
+async def get_audit_event(
+    event_id: UUID,
+    session: AsyncSession = Depends(get_db_session),
+) -> AuditEventResponse:
+    """Retrieve an immutable audit record by UUID."""
+    event = await _audit_service.get_event(session, event_id)
+    return AuditEventResponse.model_validate(event)
