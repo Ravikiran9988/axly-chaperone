@@ -118,3 +118,40 @@ def verify_admin_key(presented_key: str, configured_key: str) -> bool:
 def generate_admin_bootstrap_key() -> str:
     """Generate a high-entropy random secret suitable for CHAPERONE_ADMIN_API_KEY."""
     return f"axly_adm_{secrets.token_urlsafe(36)}"
+
+
+def hash_password(
+    password: str,
+    *,
+    iterations: int = 200_000,
+    pepper: str | None = None,
+) -> str:
+    """Hash an administrator password with per-user salt via PBKDF2-HMAC-SHA256."""
+    return hash_api_key(password, iterations=iterations, pepper=pepper)
+
+
+def verify_password(password: str, stored_hash: str, *, pepper: str | None = None) -> bool:
+    """Verify an administrator password in constant time."""
+    if not password or not stored_hash:
+        return False
+    return verify_api_key(password, stored_hash, pepper=pepper)
+
+
+def dummy_verify_password(*, iterations: int = 200_000, pepper: str | None = None) -> None:
+    """Balance authentication timing when an admin username does not exist."""
+    dummy_verify_api_key(iterations=iterations, pepper=pepper)
+
+
+def generate_session_token() -> str:
+    """Generate a high-entropy opaque cookie session token."""
+    return secrets.token_urlsafe(32)
+
+
+def hash_session_token(raw_token: str) -> str:
+    """Hash an opaque session token with SHA-256 for DB storage (never store raw tokens)."""
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+
+def generate_csrf_token() -> str:
+    """Generate a random CSRF synchronizer token bound to the server session."""
+    return secrets.token_urlsafe(32)

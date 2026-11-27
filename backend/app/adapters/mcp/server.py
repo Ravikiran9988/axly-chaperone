@@ -1,4 +1,4 @@
-"""MCP server exposing controlled Chaperone tools routed strictly through the gateway."""
+"""MCP server exposing controlled Chaperone tools with out-of-band agent identity binding."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import uuid
+from collections.abc import Callable
 from typing import Any
 
 import mcp.types as types
@@ -31,10 +32,14 @@ from app.services.gateway_service import GatewayService
 
 logger = logging.getLogger("chaperone.mcp")
 
+_CREDENTIAL_ARG_KEYS = frozenset(
+    {"agent_api_key", "api_key", "x_agent_key", "x-agent-key", "x_admin_key", "x-admin-key"}
+)
+
 _TOOL_SCHEMAS: dict[str, tuple[str, type[McpToolCallEnvelope]]] = {
     "file_tool": (
         "Controlled sandbox filesystem tool (actions: read, write, list). "
-        "All calls are authenticated, policy-evaluated, and audited by Chaperone.",
+        "All calls are authenticated out-of-band, policy-evaluated, and audited by Chaperone.",
         McpFileToolInput,
     ),
     "email_tool": (
@@ -48,6 +53,16 @@ _TOOL_SCHEMAS: dict[str, tuple[str, type[McpToolCallEnvelope]]] = {
         McpDatabaseToolInput,
     ),
 }
+
+
+def _contains_credential_keys(value: Any) -> bool:
+    if isinstance(value, dict):
+        for k, v in value.items():
+            if str(k).strip().lower() in _CREDENTIAL_ARG_KEYS or _contains_credential_keys(v):
+                return True
+    elif isinstance(value, list):
+        return any(_contains_credential_keys(item) for item in value)
+    return False
 
 
 def _mcp_error_result(
@@ -75,8 +90,10 @@ def create_chaperone_mcp_server(
     session_factory: async_sessionmaker[AsyncSession],
     settings: Settings,
     gateway_service: GatewayService | None = None,
+    bound_agent_key: str | None = None,
+    credential_provider: Callable[[ServerRequestContext[Any]], str | None] | None = None,
 ) -> Server[Any]:
-    """Create an MCP Server whose tool calls pass strictly through Chaperone's gateway."""
+    """Create an MCP Server whose calls authenticate strictly out-of-band (never in tool args)."""
     gateway = gateway_service or GatewayService()
 
     async def handle_list_tools(
@@ -94,7 +111,7 @@ def create_chaperone_mcp_server(
         return types.ListToolsResult(tools=tools)
 
     async def handle_call_tool(
-        _ctx: ServerRequestContext[Any],
+        ctx: ServerRequestContext[Any],
         params: types.CallToolRequestParams,
     ) -> types.CallToolResult:
         fallback_cid = str(uuid.uuid4())
@@ -120,12 +137,21 @@ def create_chaperone_mcp_server(
             )
 
         correlation_id = validated.correlation_id or fallback_cid
-        default_mcp_key = (
-            settings.mcp_agent_key.get_secret_value()
+        if _contains_credential_keys(validated.arguments):
+            return _mcp_error_result(
+                code="INVALID_MCP_ARGUMENTS",
+                message="Credentials must never be passed inside MCP tool arguments.",
+                correlation_id=correlation_id,
+            )
+
+        # Out-of-band authentication binding: provider callback -> bound key -> server env setting
+        env_key = (
+            settings.mcp_agent_key.get_secret_value().strip()
             if settings.mcp_agent_key is not None
             else None
         )
-        presented_key = validated.agent_api_key or default_mcp_key
+        session_bound_key = credential_provider(ctx) if credential_provider is not None else None
+        presented_key = (session_bound_key or bound_agent_key or env_key or "").strip() or None
 
         async with session_factory() as session:
             auth_result = await authenticate_agent_key(
@@ -197,8 +223,8 @@ def create_chaperone_mcp_server(
         name="axly-chaperone",
         version=settings.app_version,
         instructions=(
-            "AXLY Chaperone Security Gateway MCP Server. Every tool call is authenticated, "
-            "evaluated by deterministic policies, approved if sensitive, and verified."
+            "AXLY Chaperone Security Gateway MCP Server. Every tool call is authenticated "
+            "out-of-band, evaluated by deterministic policies, approved if sensitive, and verified."
         ),
         on_list_tools=handle_list_tools,
         on_call_tool=handle_call_tool,
@@ -206,7 +232,7 @@ def create_chaperone_mcp_server(
 
 
 async def run_stdio_server(settings: Settings | None = None) -> None:
-    """Run the Chaperone MCP server over stdio transport for local AI agent clients."""
+    """Run the Chaperone MCP server over stdio transport with out-of-band credentials."""
     resolved = settings or get_settings()
     configure_logging(level=resolved.log_level, json_logs=resolved.log_json)
     engine = build_engine(

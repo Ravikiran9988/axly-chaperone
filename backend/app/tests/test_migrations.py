@@ -36,9 +36,12 @@ def test_alembic_upgrade_and_downgrade_on_isolated_db(tmp_path: Path) -> None:
         tables = set(inspect(sync_engine).get_table_names())
         assert {
             "agents",
+            "admin_users",
+            "admin_sessions",
             "tools",
             "policies",
             "audit_events",
+            "audit_chain_state",
             "approval_requests",
             "verification_records",
             "mock_emails",
@@ -56,6 +59,9 @@ def test_alembic_upgrade_and_downgrade_on_isolated_db(tmp_path: Path) -> None:
     try:
         tables_after = set(inspect(sync_engine).get_table_names())
         assert "agents" not in tables_after
+        assert "admin_users" not in tables_after
+        assert "admin_sessions" not in tables_after
+        assert "audit_chain_state" not in tables_after
         assert "approval_requests" not in tables_after
         assert "verification_records" not in tables_after
         assert "audit_events" not in tables_after

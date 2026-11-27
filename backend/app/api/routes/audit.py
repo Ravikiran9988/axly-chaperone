@@ -66,13 +66,13 @@ async def list_audit_events(
 @router.get(
     "/integrity",
     response_model=AuditIntegrityResponse,
-    summary="Verify cryptographic digest integrity of audit events",
+    summary="Verify cryptographic chained integrity of audit events",
 )
 async def verify_audit_integrity(
-    limit: int = Query(default=500, ge=1, le=5000),
+    limit: int | None = Query(default=None, ge=1, le=50_000),
     session: AsyncSession = Depends(get_db_session),
 ) -> AuditIntegrityResponse:
-    """Recompute SHA-256 record digests across stored audit logs to detect tampering."""
+    """Recompute chained SHA-256 digests from the earliest record onward."""
     result = await _audit_service.verify_integrity(session, limit=limit)
     return AuditIntegrityResponse.model_validate(result)
 

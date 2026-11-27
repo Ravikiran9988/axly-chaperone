@@ -62,21 +62,26 @@ async def test_mcp_server_registration_auth_policy_and_errors(
     mcp_server = create_chaperone_mcp_server(
         session_factory=session_factory,
         settings=test_settings,
+        bound_agent_key=agent_key,
     )
 
     async with connect_in_memory_mcp(mcp_server) as mcp_client:
-        # 1. Tool registration check
+        # 1. Tool registration check & ensure ZERO credential fields appear in MCP schema
         tools = await mcp_client.list_tools()
         tool_names = {tool.name for tool in tools}
         assert {"file_tool", "email_tool", "database_tool"} == tool_names
+        for tool in tools:
+            props = tool.inputSchema.get("properties", {})
+            assert "agent_api_key" not in props
+            assert "api_key" not in props
+            assert "x_agent_key" not in props
 
-        # 2. Valid call executes through gateway & verifies
+        # 2. Valid call executes through gateway & verifies (bound out-of-band)
         valid_res = await mcp_client.call_tool(
             tool_name="file_tool",
             action="read",
             resource="documents/invoice.txt",
             arguments={"path": "documents/invoice.txt"},
-            agent_api_key=agent_key,
             correlation_id="mcp-valid-call-001",
         )
         assert valid_res.is_error is False
@@ -84,12 +89,11 @@ async def test_mcp_server_registration_auth_policy_and_errors(
         assert valid_res.payload["correlation_id"] == "mcp-valid-call-001"
         assert valid_res.payload["verification"]["status"] == "VERIFIED"
 
-        # 3. Invalid call (unknown tool and malformed action) handled safely
+        # 3. Invalid call (unknown tool, malformed action, or LLM passing agent_api_key) rejected
         unknown_res = await mcp_client.call_tool(
             tool_name="shell_exec",
             action="run",
             resource="/bin/sh",
-            agent_api_key=agent_key,
         )
         assert unknown_res.is_error is True
         assert unknown_res.payload["error"]["code"] == "UNKNOWN_TOOL"
@@ -98,23 +102,20 @@ async def test_mcp_server_registration_auth_policy_and_errors(
             tool_name="file_tool",
             action="exec_shell",
             resource="documents/invoice.txt",
-            agent_api_key=agent_key,
         )
         assert malformed_res.is_error is True
         assert malformed_res.payload["error"]["code"] == "INVALID_MCP_ARGUMENTS"
 
-        # 4. Unauthorized MCP call rejected & audited
-        unauth_res = await mcp_client.call_tool(
+        key_in_args_res = await mcp_client.call_tool(
             tool_name="file_tool",
             action="read",
             resource="documents/invoice.txt",
-            agent_api_key="axly_ag_0000000000000000_invalidinvalidinvalidinvalidinvalid",
-            correlation_id="mcp-unauth-002",
+            raw_extra_args={"agent_api_key": agent_key},
         )
-        assert unauth_res.is_error is True
-        assert unauth_res.payload["error"]["code"] == "AUTHENTICATION_FAILED"
+        assert key_in_args_res.is_error is True
+        assert key_in_args_res.payload["error"]["code"] == "INVALID_MCP_ARGUMENTS"
 
-        # 5. Policy engine enforces DENY on private/secrets.txt and never invokes adapter
+        # 4. Policy engine enforces DENY on private/secrets.txt and never invokes adapter
         real_exec = FileToolAdapter.execute
         called_private = False
 
@@ -131,7 +132,6 @@ async def test_mcp_server_registration_auth_policy_and_errors(
             action="read",
             resource="private/secrets.txt",
             arguments={"path": "private/secrets.txt"},
-            agent_api_key=agent_key,
             correlation_id="mcp-denied-003",
         )
         assert denied_res.is_error is True
@@ -139,13 +139,30 @@ async def test_mcp_server_registration_auth_policy_and_errors(
         assert denied_res.payload["status"] == "BLOCKED"
         assert called_private is False
 
-    # Verify MCP audit trail propagated correlation IDs cleanly
+    # 5. Unauthenticated MCP server (no bound key) fails closed & logs audit event
+    unauth_server = create_chaperone_mcp_server(
+        session_factory=session_factory,
+        settings=test_settings,
+        bound_agent_key=None,
+    )
+    async with connect_in_memory_mcp(unauth_server) as unauth_client:
+        unauth_res = await unauth_client.call_tool(
+            tool_name="file_tool",
+            action="read",
+            resource="documents/invoice.txt",
+            correlation_id="mcp-unauth-002",
+        )
+        assert unauth_res.is_error is True
+        assert unauth_res.payload["error"]["code"] == "AUTHENTICATION_FAILED"
+
+    # Verify MCP audit trail propagated correlation IDs cleanly without leaking secrets
     audit_resp = await client.get(
         "/api/v1/audit-events?correlation_id=mcp-unauth-002",
         headers=admin_headers,
     )
     assert audit_resp.status_code == 200
     assert audit_resp.json()["total"] == 1
+    assert "axly_ag_" not in str(audit_resp.json())
 
 
 @pytest.mark.asyncio

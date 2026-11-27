@@ -2,17 +2,17 @@ import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { AlertCircle, Eye, EyeOff, Lock, Moon, ShieldCheck, Sun, Wifi, WifiOff } from 'lucide-react';
+import { AlertCircle, Eye, EyeOff, KeyRound, Lock, Moon, ShieldCheck, Sun, UserCheck, Wifi, WifiOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useHealthQuery, useReadinessQuery } from '../hooks/useHealth';
-import { loginSchema } from '../utils/validators';
+import { loginBootstrapSchema, loginCredentialsSchema } from '../utils/validators';
 import { BrandLogo } from '../components/layout/BrandLogo';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 
 export function Login() {
-  const { login, sessionNotice, clearNotice, authMode } = useAuth();
+  const { login, sessionNotice, clearNotice } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
@@ -21,35 +21,50 @@ export function Login() {
   const healthQuery = useHealthQuery();
   const readinessQuery = useReadinessQuery();
 
-  const [showKey, setShowKey] = useState(false);
+  const [loginTab, setLoginTab] = useState('credentials'); // 'credentials' | 'bootstrap'
+  const [showSecret, setShowSecret] = useState(false);
   const [authError, setAuthError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors },
-  } = useForm({
-    resolver: zodResolver(loginSchema),
-    defaultValues: { adminKey: '', actor: '' },
+  const credentialsForm = useForm({
+    resolver: zodResolver(loginCredentialsSchema),
+    defaultValues: { username: '', password: '' },
+  });
+
+  const bootstrapForm = useForm({
+    resolver: zodResolver(loginBootstrapSchema),
+    defaultValues: { adminKey: '' },
   });
 
   const apiConnected = healthQuery.isSuccess && healthQuery.data?.status === 'ok';
   const dbReady = readinessQuery.isSuccess && readinessQuery.data?.database === 'connected';
 
-  const onSubmit = async (values) => {
+  const onSubmitCredentials = async (values) => {
     setAuthError(null);
     clearNotice();
-    if (authMode !== 'session_cookie' && values.adminKey?.trim().startsWith('axly_ag_')) {
-      setAuthError('Agent API keys (axly_ag_...) cannot be used to access the administrative control plane.');
+    setSubmitting(true);
+    try {
+      await login({ username: values.username, password: values.password });
+      navigate(fromPath, { replace: true });
+    } catch (err) {
+      setAuthError(err.message || 'Authentication failed.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const onSubmitBootstrap = async (values) => {
+    setAuthError(null);
+    clearNotice();
+    if (values.adminKey?.trim().startsWith('axly_ag_')) {
+      setAuthError(
+        'Agent API keys (axly_ag_...) cannot be used to access the administrative control plane.'
+      );
       return;
     }
     setSubmitting(true);
     try {
-      await login({
-        adminKey: values.adminKey,
-        actor: values.actor,
-      });
+      await login({ adminKey: values.adminKey });
       navigate(fromPath, { replace: true });
     } catch (err) {
       setAuthError(err.message || 'Authentication failed.');
@@ -80,7 +95,7 @@ export function Login() {
                 Administrator Sign In
               </h1>
               <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                Authenticate against the AXLY Chaperone control plane.
+                Authenticate for a short-lived HttpOnly governance session.
               </p>
             </div>
             <div className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-obsidian-850 dark:text-slate-300">
@@ -88,7 +103,6 @@ export function Login() {
             </div>
           </div>
 
-          {/* Live backend probe status */}
           <div className="mt-4 flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-800 dark:bg-obsidian-950">
             <span className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
               {apiConnected ? (
@@ -115,6 +129,48 @@ export function Login() {
             )}
           </div>
 
+          {/* Auth method tabs */}
+          <div
+            role="tablist"
+            aria-label="Authentication method"
+            className="mt-4 grid grid-cols-2 rounded-md border border-slate-200 bg-slate-100 p-0.5 text-xs dark:border-slate-800 dark:bg-obsidian-950"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={loginTab === 'credentials'}
+              onClick={() => {
+                setLoginTab('credentials');
+                setAuthError(null);
+              }}
+              className={`flex items-center justify-center gap-1.5 rounded px-2.5 py-1.5 font-medium transition-colors ${
+                loginTab === 'credentials'
+                  ? 'bg-white text-slate-900 shadow-sm dark:bg-obsidian-800 dark:text-slate-100'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
+            >
+              <UserCheck className="h-3.5 w-3.5" />
+              Admin Account
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={loginTab === 'bootstrap'}
+              onClick={() => {
+                setLoginTab('bootstrap');
+                setAuthError(null);
+              }}
+              className={`flex items-center justify-center gap-1.5 rounded px-2.5 py-1.5 font-medium transition-colors ${
+                loginTab === 'bootstrap'
+                  ? 'bg-white text-slate-900 shadow-sm dark:bg-obsidian-800 dark:text-slate-100'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
+            >
+              <KeyRound className="h-3.5 w-3.5" />
+              Bootstrap Key
+            </button>
+          </div>
+
           {sessionNotice && (
             <div
               role="status"
@@ -135,50 +191,73 @@ export function Login() {
             </div>
           )}
 
-          {authMode === 'session_cookie' ? (
-            <div className="mt-5 space-y-4">
-              <p className="text-xs text-slate-600 dark:text-slate-300">
-                Console is configured for HTTP-only cookie session mode. Ensure your identity
-                provider session cookie is active, then verify access below.
-              </p>
-              <Button
-                className="w-full"
-                isLoading={submitting}
-                onClick={() => onSubmit({ adminKey: 'cookie-session', actor: '' })}
-              >
-                Verify Cookie Session
-              </Button>
-            </div>
-          ) : (
-            <form onSubmit={handleSubmit(onSubmit)} className="mt-5 space-y-4" noValidate>
+          {loginTab === 'credentials' ? (
+            <form
+              onSubmit={credentialsForm.handleSubmit(onSubmitCredentials)}
+              className="mt-4 space-y-4"
+              noValidate
+            >
+              <Input
+                label="Administrator Username"
+                type="text"
+                autoComplete="username"
+                placeholder="e.g. secops-lead"
+                error={credentialsForm.formState.errors.username?.message}
+                {...credentialsForm.register('username')}
+              />
+
               <div className="relative">
                 <Input
-                  label="Admin API Key (X-Admin-Key)"
-                  type={showKey ? 'text' : 'password'}
-                  mono
+                  label="Password"
+                  type={showSecret ? 'text' : 'password'}
                   autoComplete="current-password"
-                  placeholder="axly_adm_..."
-                  error={errors.adminKey?.message}
+                  placeholder="Enter account password"
+                  error={credentialsForm.formState.errors.password?.message}
                   className="pr-10"
-                  {...register('adminKey')}
+                  {...credentialsForm.register('password')}
                 />
                 <button
                   type="button"
-                  onClick={() => setShowKey((prev) => !prev)}
-                  aria-label={showKey ? 'Hide admin key' : 'Show admin key'}
+                  onClick={() => setShowSecret((prev) => !prev)}
+                  aria-label={showSecret ? 'Hide password' : 'Show password'}
                   className="absolute right-2.5 top-[30px] rounded p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
                 >
-                  {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
 
-              <Input
-                label="Reviewer / Actor Identity (optional)"
-                placeholder="e.g. secops-lead"
-                hint="Optional X-Admin-Actor attribution for approvals. Cross-origin setups must include X-Admin-Actor in CHAPERONE_CORS_ALLOW_HEADERS."
-                error={errors.actor?.message}
-                {...register('actor')}
-              />
+              <Button type="submit" className="w-full" isLoading={submitting}>
+                <ShieldCheck className="h-4 w-4" />
+                Sign In with Session Cookie
+              </Button>
+            </form>
+          ) : (
+            <form
+              onSubmit={bootstrapForm.handleSubmit(onSubmitBootstrap)}
+              className="mt-4 space-y-4"
+              noValidate
+            >
+              <div className="relative">
+                <Input
+                  label="Bootstrap Admin Key"
+                  type={showSecret ? 'text' : 'password'}
+                  mono
+                  autoComplete="current-password"
+                  placeholder="axly_adm_..."
+                  hint="Exchanges the single-admin dev/demo key once for a short-lived HttpOnly cookie session."
+                  error={bootstrapForm.formState.errors.adminKey?.message}
+                  className="pr-10"
+                  {...bootstrapForm.register('adminKey')}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowSecret((prev) => !prev)}
+                  aria-label={showSecret ? 'Hide bootstrap key' : 'Show bootstrap key'}
+                  className="absolute right-2.5 top-[30px] rounded p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                >
+                  {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
 
               <Button type="submit" className="w-full" isLoading={submitting}>
                 <ShieldCheck className="h-4 w-4" />
@@ -188,8 +267,9 @@ export function Login() {
           )}
 
           <div className="mt-5 border-t border-slate-200 pt-4 text-[11px] leading-relaxed text-slate-500 dark:border-slate-800 dark:text-slate-400">
-            Credentials are verified directly with the backend API and held strictly in browser
-            memory for this session — never written to <code>localStorage</code> or client bundles.
+            Authentication issues a server-managed <code>HttpOnly</code>, <code>SameSite</code>{' '}
+            session cookie protected by <code>X-CSRF-Token</code>. Reviewer identity is derived
+            strictly server-side — never stored in <code>localStorage</code>.
           </div>
         </div>
       </main>

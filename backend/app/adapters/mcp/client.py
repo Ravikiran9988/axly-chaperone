@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -60,22 +61,22 @@ class ChaperoneMCPClient:
         action: str,
         resource: str,
         arguments: dict[str, Any] | None = None,
-        agent_api_key: str | None = None,
         correlation_id: str | None = None,
         approval_id: str | None = None,
+        raw_extra_args: dict[str, Any] | None = None,
     ) -> McpCallOutcome:
-        """Invoke a Chaperone-mediated tool over the MCP ClientSession."""
+        """Invoke a Chaperone-mediated tool over the MCP ClientSession (no API key args)."""
         call_args: dict[str, Any] = {
             "action": action,
             "resource": resource,
             "arguments": arguments or {},
         }
-        if agent_api_key is not None:
-            call_args["agent_api_key"] = agent_api_key
         if correlation_id is not None:
             call_args["correlation_id"] = correlation_id
         if approval_id is not None:
             call_args["approval_id"] = approval_id
+        if raw_extra_args:
+            call_args.update(raw_extra_args)
 
         result = await self._session.call_tool(tool_name, arguments=call_args)
         assert isinstance(result, types.CallToolResult)
@@ -106,14 +107,18 @@ async def connect_in_memory_mcp(server: Server[Any]) -> AsyncIterator[ChaperoneM
 @asynccontextmanager
 async def connect_stdio_mcp(
     *,
+    agent_api_key: str | None = None,
     env: dict[str, str] | None = None,
     cwd: str | None = None,
 ) -> AsyncIterator[ChaperoneMCPClient]:
-    """Launch and connect to the Chaperone MCP server over stdio subprocess transport."""
+    """Launch the MCP server over stdio, passing credentials strictly via subprocess env."""
+    merged_env = dict(env if env is not None else os.environ)
+    if agent_api_key is not None:
+        merged_env["CHAPERONE_MCP_AGENT_KEY"] = agent_api_key
     params = StdioServerParameters(
         command=sys.executable,
         args=["-m", "app.adapters.mcp.server"],
-        env=env,
+        env=merged_env,
         cwd=cwd,
     )
     async with stdio_client(params) as (read_stream, write_stream):

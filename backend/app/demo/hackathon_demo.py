@@ -190,7 +190,11 @@ async def run_hackathon_demo(
     async with session_factory() as session:
         agent_id, agent_key = await _seed_demo_entities(session, settings=settings)
 
-    mcp_server = create_chaperone_mcp_server(session_factory=session_factory, settings=settings)
+    mcp_server = create_chaperone_mcp_server(
+        session_factory=session_factory,
+        settings=settings,
+        bound_agent_key=agent_key,
+    )
     approval_svc = ApprovalService()
     audit_svc = AuditService()
 
@@ -201,7 +205,6 @@ async def run_hackathon_demo(
             action="read",
             resource="documents/invoice.txt",
             arguments={"path": "documents/invoice.txt"},
-            agent_api_key=agent_key,
             correlation_id="demo-scen-a-read-001",
         )
         raw_invoice = scen_a_res.payload.get("output", {}).get("content", "")
@@ -213,7 +216,6 @@ async def run_hackathon_demo(
             action="read",
             resource="private/secrets.txt",
             arguments={"path": "private/secrets.txt"},
-            agent_api_key=agent_key,
             correlation_id="demo-scen-b-priv-002",
         )
         scen_b_exfil = await mcp_client.call_tool(
@@ -225,7 +227,6 @@ async def run_hackathon_demo(
                 "subject": "Exfiltrated Secrets",
                 "body": "Attempted secret exfiltration",
             },
-            agent_api_key=agent_key,
             correlation_id="demo-scen-b-exfil-003",
         )
 
@@ -239,7 +240,6 @@ async def run_hackathon_demo(
                 "subject": "Summary for INV-2026-001",
                 "body": summary,
             },
-            agent_api_key=agent_key,
             correlation_id="demo-scen-c-appr-004",
         )
 
@@ -264,7 +264,6 @@ async def run_hackathon_demo(
                     "path": "documents/unwritten_report.txt",
                     "content": "Report that failed to flush to disk",
                 },
-                agent_api_key=agent_key,
                 correlation_id="demo-scen-d-fail-005",
             )
 

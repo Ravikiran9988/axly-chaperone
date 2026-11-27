@@ -28,15 +28,15 @@ AXLY Chaperone acts as a mandatory security boundary between AI agents (or MCP c
 - **Frontend:** React 18, JavaScript, Vite, Tailwind CSS, React Router v7, TanStack Query, Axios, Recharts, React Hook Form, Zod v4 (in-memory admin authentication; zero `localStorage` secret persistence).
 
 ## Measured Evidence (From Actual Benchmark Run)
-Executed on `2026-11-27T16:16:20Z` (`Windows-10`, Python `3.12.13`, 8 CPU cores, isolated SQLite benchmark instance) via `python -m app.benchmark.runner`:
+Executed on `2026-11-27T16:20:51.363192+00:00` (`Windows-10`, Python `3.12.13`, 8 CPU cores, isolated SQLite benchmark instance) via `python -m app.benchmark.runner`:
 - **Total Scenarios:** `64` (`32` malicious/unauthorized, `32` legitimate) — **64 passed, 0 failed, 0 skipped**
 - **Security Blocking Rate:** `100.00%` (`32 / 32` unauthorized actions prevented)
 - **Legitimate Task Success Rate:** `100.00%` (`32 / 32` legitimate scenarios succeeded)
 - **False-Block Rate:** `0.00%` (`0 / 32`)
 - **Policy Decision Accuracy:** `100.00%` (`50 / 50`)
 - **Outcome Verification Accuracy:** `100.00%` (`26 / 26`)
-- **Pure `PolicyEngine.evaluate()` Latency:** `p50 = 0.200 ms`, `p95 = 0.347 ms`, `max = 0.380 ms`
-- **Gateway Total Request Latency (incl. PBKDF2 auth & audit commit):** `p50 = 139.067 ms`, `p95 = 307.366 ms`, `max = 339.008 ms`
+- **Pure `PolicyEngine.evaluate()` Latency:** `p50 = 0.151 ms`, `p95 = 0.322 ms`, `max = 0.563 ms`
+- **Gateway Total Request Latency (incl. PBKDF2 auth & audit commit):** `p50 = 129.196 ms`, `p95 = 283.381 ms`, `max = 431.632 ms`
 
 ## Scope & Honest Limitations
 - AXLY Chaperone provides **capability-level enforcement**, not semantic prompt-injection NLP classification: it prevents hijacked agents from invoking unauthorized or unapproved tools, rather than claiming to block every conceivable text-level jailbreak within an explicitly permitted read/write scope.

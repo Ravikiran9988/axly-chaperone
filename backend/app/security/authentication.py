@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import hashlib
-import re
+import hmac
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from uuid import UUID
 
 from fastapi import Depends, Header, Request
 from sqlalchemy import select
@@ -12,26 +14,33 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
 from app.core.database import get_db_session
-from app.core.exceptions import AdminBootstrapError, AuthenticationError
+from app.core.exceptions import AdminBootstrapError, AuthenticationError, AuthorizationError
 from app.core.security import (
     dummy_verify_api_key,
+    hash_session_token,
     parse_agent_api_key,
     verify_admin_key,
     verify_api_key,
 )
+from app.models.admin import AdminSession, AdminUser
 from app.models.agent import Agent
-from app.models.enums import AgentStatus, VerificationStatus
+from app.models.enums import AdminRole, AdminStatus, AgentStatus, VerificationStatus
 
-_ADMIN_ACTOR_RE = re.compile(r"^[A-Za-z0-9._:@-]{2,64}$")
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
 @dataclass(frozen=True, slots=True)
 class AdminPrincipal:
-    """Verified administrative caller context (never stores raw admin secret)."""
+    """Verified administrative caller context (derived exclusively server-side)."""
 
     authenticated: bool = True
-    auth_scheme: str = "x-admin-key"
+    auth_scheme: str = "session_cookie"
     reviewer_id: str = "admin"
+    role: AdminRole = AdminRole.SUPER_ADMIN
+    user_id: UUID | None = None
+    session_id: UUID | None = None
+    csrf_token: str | None = None
+    expires_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,31 +60,122 @@ def resolve_settings(request: Request) -> Settings:
 
 
 async def authenticate_admin(
+    request: Request,
     x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
-    x_admin_actor: str | None = Header(default=None, alias="X-Admin-Actor"),
+    x_csrf_token: str | None = Header(default=None, alias="X-CSRF-Token"),
+    session: AsyncSession = Depends(get_db_session),
     settings: Settings = Depends(resolve_settings),
 ) -> AdminPrincipal:
-    """Authenticate an administrative request via the X-Admin-Key header."""
+    """Authenticate an administrative request via HttpOnly session cookie (or dev X-Admin-Key).
+
+    Security invariant: client-supplied actor identity headers (such as X-Admin-Actor) are never
+    read or trusted; reviewer_id is always derived exclusively from verified server state.
+    """
+    raw_session_token = request.cookies.get(settings.session_cookie_name)
+    if raw_session_token:
+        token_hash = hash_session_token(raw_session_token)
+        session_row = (
+            await session.execute(select(AdminSession).where(AdminSession.token_hash == token_hash))
+        ).scalar_one_or_none()
+        if session_row is None:
+            raise AuthenticationError(
+                "Invalid administrative session.",
+                code="INVALID_SESSION",
+            )
+        if session_row.revoked_at is not None:
+            raise AuthenticationError(
+                "Administrative session has been revoked.",
+                code="SESSION_REVOKED",
+            )
+        expires_at = (
+            session_row.expires_at.replace(tzinfo=UTC)
+            if session_row.expires_at.tzinfo is None
+            else session_row.expires_at.astimezone(UTC)
+        )
+        if datetime.now(UTC) >= expires_at:
+            raise AuthenticationError(
+                "Administrative session has expired.",
+                code="SESSION_EXPIRED",
+            )
+
+        if request.method.upper() not in _SAFE_METHODS:
+            if not x_csrf_token or not hmac.compare_digest(
+                x_csrf_token.strip(), session_row.csrf_token
+            ):
+                raise AuthorizationError(
+                    "Invalid or missing CSRF token.",
+                    code="CSRF_VALIDATION_FAILED",
+                )
+
+        if session_row.admin_user_id is not None:
+            user = (
+                await session.execute(
+                    select(AdminUser).where(AdminUser.id == session_row.admin_user_id)
+                )
+            ).scalar_one_or_none()
+            if user is None or user.status != AdminStatus.ACTIVE.value:
+                raise AuthenticationError(
+                    "Administrator account is inactive or no longer exists.",
+                    code="ADMIN_ACCOUNT_DISABLED",
+                )
+            reviewer_id = user.username
+            role = AdminRole(user.role)
+        else:
+            reviewer_id = session_row.principal_id
+            role = AdminRole(session_row.role)
+
+        return AdminPrincipal(
+            authenticated=True,
+            auth_scheme="session_cookie",
+            reviewer_id=reviewer_id,
+            role=role,
+            user_id=session_row.admin_user_id,
+            session_id=session_row.id,
+            csrf_token=session_row.csrf_token,
+            expires_at=expires_at,
+        )
+
     configured_key = settings.get_admin_api_key()
+    if x_admin_key is not None:
+        if configured_key is None:
+            raise AdminBootstrapError(
+                "Administrative API key is not configured. "
+                "Set CHAPERONE_ADMIN_API_KEY before use."
+            )
+        if not settings.allow_admin_api_key_header:
+            raise AuthorizationError(
+                "Header-based X-Admin-Key access is disabled; sign in using session cookies.",
+                code="ADMIN_KEY_HEADER_DISABLED",
+            )
+        if not verify_admin_key(x_admin_key, configured_key):
+            raise AuthenticationError(
+                "Invalid administrative credentials.",
+                code="INVALID_ADMIN_CREDENTIALS",
+            )
+        key_fingerprint = hashlib.sha256(configured_key.encode("utf-8")).hexdigest()[:12]
+        return AdminPrincipal(
+            authenticated=True,
+            auth_scheme="x-admin-key",
+            reviewer_id=f"admin:{key_fingerprint}",
+            role=AdminRole.SUPER_ADMIN,
+        )
+
     if configured_key is None:
-        raise AdminBootstrapError(
-            "Administrative API key is not configured. Set CHAPERONE_ADMIN_API_KEY before use."
-        )
-    if not x_admin_key:
-        raise AuthenticationError(
-            "Missing X-Admin-Key header.",
-            code="ADMIN_AUTH_REQUIRED",
-        )
-    if not verify_admin_key(x_admin_key, configured_key):
-        raise AuthenticationError(
-            "Invalid administrative credentials.",
-            code="INVALID_ADMIN_CREDENTIALS",
-        )
-    key_fingerprint = hashlib.sha256(configured_key.encode("utf-8")).hexdigest()[:12]
-    reviewer_id = f"admin:{key_fingerprint}"
-    if x_admin_actor and _ADMIN_ACTOR_RE.fullmatch(x_admin_actor.strip()):
-        reviewer_id = f"{x_admin_actor.strip()}:{key_fingerprint[:6]}"
-    return AdminPrincipal(reviewer_id=reviewer_id)
+        any_admin = (
+            await session.execute(
+                select(AdminUser.id).where(AdminUser.status == AdminStatus.ACTIVE.value).limit(1)
+            )
+        ).scalar_one_or_none()
+        if any_admin is None:
+            raise AdminBootstrapError(
+                "Administrative authentication is not configured. "
+                "Create an admin user or set CHAPERONE_ADMIN_API_KEY."
+            )
+
+    raise AuthenticationError(
+        "Administrative authentication required.",
+        code="ADMIN_AUTH_REQUIRED",
+    )
 
 
 async def authenticate_agent_key(

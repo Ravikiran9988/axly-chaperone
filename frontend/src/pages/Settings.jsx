@@ -2,7 +2,7 @@ import { Activity, Database, Info, Moon, RefreshCw, Shield, Sun, Terminal } from
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useHealthQuery, useReadinessQuery } from '../hooks/useHealth';
-import { API_BASE_URL, API_TIMEOUT_MS, AUTH_MODE } from '../services/api';
+import { API_BASE_URL, API_TIMEOUT_MS } from '../services/api';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { StatusBadge } from '../components/ui/StatusBadge';
@@ -116,7 +116,7 @@ export function Settings() {
                   Admin Session Mode
                 </span>
                 <span className="font-mono text-slate-900 dark:text-slate-100">
-                  {AUTH_MODE} ({user?.actor || 'admin'})
+                  {user?.authScheme || 'session_cookie'} ({user?.reviewerId || 'admin'} · {user?.role || 'super_admin'})
                 </span>
               </div>
               <div className="flex items-center justify-between py-2.5">
@@ -182,9 +182,10 @@ export function Settings() {
         <CardContent className="space-y-2 text-xs text-slate-600 dark:text-slate-300">
           <ul className="list-disc space-y-1.5 pl-5">
             <li>
-              <strong>Admin Login / HTTP-only Cookie Sessions:</strong> Backend currently uses single-key{' '}
-              <code>X-Admin-Key</code> validation; frontend holds this credential strictly in memory and
-              exposes a Phase 4 <code>VITE_AUTH_MODE=session_cookie</code> contract.
+              <strong>Admin Cookie Sessions &amp; CSRF:</strong> Control-plane authentication uses
+              server-managed short-lived <code>HttpOnly</code> session cookies verified via{' '}
+              <code>/api/v1/auth/login</code> and protected on state changes by{' '}
+              <code>X-CSRF-Token</code>. Reviewer identities are derived solely server-side.
             </li>
             <li>
               <strong>Aggregated Metrics Endpoint:</strong> Overview KPIs and charts compute directly from

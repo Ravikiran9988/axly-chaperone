@@ -1,7 +1,9 @@
 import '@testing-library/jest-dom/vitest';
 import { afterEach, vi } from 'vitest';
-import { cleanup } from '@testing-library/react';
+import { cleanup, configure } from '@testing-library/react';
 import { clearMemoryCredentials, apiClient } from '../services/api';
+
+configure({ asyncUtilTimeout: 5000 });
 
 const originalAdapter = apiClient.defaults.adapter;
 

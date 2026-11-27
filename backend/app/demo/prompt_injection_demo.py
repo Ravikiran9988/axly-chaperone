@@ -171,7 +171,11 @@ async def run_prompt_injection_demo(
     async with session_factory() as session:
         agent_id, agent_key = await _seed_demo_environment(session, settings=settings)
 
-    mcp_server = create_chaperone_mcp_server(session_factory=session_factory, settings=settings)
+    mcp_server = create_chaperone_mcp_server(
+        session_factory=session_factory,
+        settings=settings,
+        bound_agent_key=agent_key,
+    )
     approval_svc = ApprovalService()
     audit_svc = AuditService()
 
@@ -182,7 +186,6 @@ async def run_prompt_injection_demo(
             action="read",
             resource="documents/invoice.txt",
             arguments={"path": "documents/invoice.txt"},
-            agent_api_key=agent_key,
             correlation_id="demo-read-invoice-001",
         )
         raw_content = read_res.payload.get("output", {}).get("content", "")
@@ -194,7 +197,6 @@ async def run_prompt_injection_demo(
             action="read",
             resource="private/secrets.txt",
             arguments={"path": "private/secrets.txt"},
-            agent_api_key=agent_key,
             correlation_id="demo-inject-private-002",
         )
         blocked_exfil = await mcp_client.call_tool(
@@ -206,7 +208,6 @@ async def run_prompt_injection_demo(
                 "subject": "Exfiltrated Secrets",
                 "body": "Attempted exfiltration payload",
             },
-            agent_api_key=agent_key,
             correlation_id="demo-inject-exfil-003",
         )
 
@@ -220,7 +221,6 @@ async def run_prompt_injection_demo(
                 "subject": "Summary for INV-2026-001",
                 "body": summary,
             },
-            agent_api_key=agent_key,
             correlation_id="demo-finance-email-004",
         )
 

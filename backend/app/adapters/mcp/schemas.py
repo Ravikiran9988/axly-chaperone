@@ -12,17 +12,12 @@ _CORRELATION_ID_RE = re.compile(r"^[A-Za-z0-9._-]{8,64}$")
 
 
 class McpToolCallEnvelope(BaseModel):
-    """Base MCP tool call contract enforcing concrete action, resource, and auth metadata."""
+    """Base model-visible MCP tool call contract (never accepts API keys or secrets)."""
 
     model_config = ConfigDict(extra="forbid")
 
     resource: str = Field(min_length=1, max_length=1024)
     arguments: dict[str, Any] = Field(default_factory=dict)
-    agent_api_key: str | None = Field(
-        default=None,
-        max_length=256,
-        description="Agent X-Agent-Key credential (optional if configured on stdio server).",
-    )
     correlation_id: str | None = Field(
         default=None,
         description="Optional correlation ID propagated across MCP and Chaperone audit logs.",

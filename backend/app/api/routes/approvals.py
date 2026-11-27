@@ -19,7 +19,7 @@ from app.core.database import get_db_session
 from app.models.enums import ApprovalStatus
 from app.schemas.common import PaginatedResponse
 from app.security.authentication import AdminPrincipal, resolve_settings
-from app.security.authorization import require_admin
+from app.security.authorization import require_admin, require_approver
 
 router = APIRouter(
     prefix="/api/v1/approvals",
@@ -81,7 +81,7 @@ async def get_approval(
 async def approve_request(
     approval_id: UUID,
     payload: ApprovalDecisionRequest | None = Body(default=None),
-    principal: AdminPrincipal = Depends(require_admin),
+    principal: AdminPrincipal = Depends(require_approver),
     session: AsyncSession = Depends(get_db_session),
     settings: Settings = Depends(resolve_settings),
 ) -> ApprovalActionResponse:
@@ -128,7 +128,7 @@ async def approve_request(
 async def reject_request(
     approval_id: UUID,
     payload: ApprovalRejectRequest | None = Body(default=None),
-    principal: AdminPrincipal = Depends(require_admin),
+    principal: AdminPrincipal = Depends(require_approver),
     session: AsyncSession = Depends(get_db_session),
 ) -> ApprovalActionResponse:
     """Reject a pending request (the tool is never executed)."""

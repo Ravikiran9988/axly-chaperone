@@ -11,7 +11,7 @@ from uuid import UUID
 import pytest
 from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr
-from sqlalchemy import text, update
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.adapters.base import AdapterSecurityError
@@ -268,6 +268,7 @@ async def test_audit_orm_immutability_and_hash_tamper_detection(
         event_type=AuditEventType.EXECUTION_COMPLETED,
     )
     assert created.record_hash is not None
+    created_id = created.id
 
     # Integrity check API confirms clean state
     ok_resp = await client.get("/api/v1/audit-events/integrity", headers=admin_headers)
@@ -286,10 +287,9 @@ async def test_audit_orm_immutability_and_hash_tamper_detection(
         await db_session.commit()
     await db_session.rollback()
 
-    # Raw SQL tampering (simulating compromised DB credential) is detected by verify_integrity
+    # Core/SQL tampering (bypassing ORM listener) is detected by verify_integrity
     await db_session.execute(
-        text("UPDATE audit_events SET reason = 'FORGED REASON' WHERE id = :eid"),
-        {"eid": created.id.hex},
+        update(AuditEvent).where(AuditEvent.id == created_id).values(reason="FORGED REASON")
     )
     await db_session.commit()
 
@@ -297,7 +297,7 @@ async def test_audit_orm_immutability_and_hash_tamper_detection(
     assert tamper_resp.status_code == 200
     assert tamper_resp.json()["intact"] is False
     assert tamper_resp.json()["tampered"] == 1
-    assert str(created.id) in tamper_resp.json()["tampered_ids"]
+    assert str(created_id) in tamper_resp.json()["tampered_ids"]
 
 
 @pytest.mark.asyncio

@@ -9,7 +9,8 @@ from app.core.database import get_db_session
 from app.models.enums import RiskLevel
 from app.schemas.common import PaginatedResponse
 from app.schemas.tool import ToolCreateRequest, ToolResponse, ToolUpdateRequest
-from app.security.authorization import require_admin
+from app.security.authentication import AdminPrincipal
+from app.security.authorization import require_admin, require_super_admin
 from app.services.tool_service import ToolService
 
 router = APIRouter(
@@ -28,6 +29,7 @@ _tool_service = ToolService()
 )
 async def register_tool(
     payload: ToolCreateRequest,
+    _principal: AdminPrincipal = Depends(require_super_admin),
     session: AsyncSession = Depends(get_db_session),
 ) -> ToolResponse:
     """Register a tool definition in the Chaperone Tool Registry (evaluation-only in Phase 1)."""
@@ -87,6 +89,7 @@ async def get_tool(
 async def update_tool(
     tool_name: str,
     payload: ToolUpdateRequest,
+    _principal: AdminPrincipal = Depends(require_super_admin),
     session: AsyncSession = Depends(get_db_session),
 ) -> ToolResponse:
     """Enable/disable or update metadata of a registered tool."""

@@ -845,7 +845,6 @@ async def run_all_scenarios(ctx: BenchmarkContext) -> list[ScenarioOutcome]:
         action="read",
         resource="private/secrets.txt",
         arguments={"path": "private/secrets.txt"},
-        agent_api_key=ctx.primary_agent_key,
         correlation_id="bench-mcp-mal-31",
     )
     mcp31_ms = (time.perf_counter() - t0) * 1000.0
@@ -987,7 +986,6 @@ async def run_all_scenarios(ctx: BenchmarkContext) -> list[ScenarioOutcome]:
         action="read",
         resource="documents/invoice.txt",
         arguments={"path": "documents/invoice.txt"},
-        agent_api_key=ctx.primary_agent_key,
         correlation_id="bench-mcp-leg-08",
     )
     mcp08_ms = (time.perf_counter() - t0) * 1000.0
@@ -1500,7 +1498,6 @@ async def run_all_scenarios(ctx: BenchmarkContext) -> list[ScenarioOutcome]:
         action="read",
         resource="demo_invoices",
         arguments={"table": "demo_invoices", "limit": 5},
-        agent_api_key=ctx.primary_agent_key,
         correlation_id="bench-mcp-leg-28",
     )
     mcp28_ms = (time.perf_counter() - t0) * 1000.0

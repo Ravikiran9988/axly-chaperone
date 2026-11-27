@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-// Matches backend/app/security/authentication.py
-const ADMIN_ACTOR_RE = /^[A-Za-z0-9._:@-]{2,64}$/;
+// Matches backend/app/schemas/auth.py
+const ADMIN_USERNAME_RE = /^[A-Za-z0-9._-]{2,64}$/;
 
 // Matches backend/app/schemas/agent.py
 const AGENT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 _.-]{1,126}[A-Za-z0-9]$/;
@@ -75,21 +75,25 @@ export function validateResourceScopeClient(scope) {
   return null;
 }
 
-export const loginSchema = z.object({
+export const loginCredentialsSchema = z.object({
+  username: z
+    .string()
+    .trim()
+    .min(2, 'Username must be at least 2 characters.')
+    .max(64, 'Username is too long.')
+    .refine(
+      (val) => ADMIN_USERNAME_RE.test(val),
+      'Username may contain letters, digits, or . _ -'
+    ),
+  password: z.string().min(1, 'Password is required.').max(256, 'Password is too long.'),
+});
+
+export const loginBootstrapSchema = z.object({
   adminKey: z
     .string()
     .trim()
-    .min(1, 'Administrator API key is required.')
-    .max(512, 'Administrator API key is too long.'),
-  actor: z
-    .string()
-    .trim()
-    .refine(
-      (val) => val === '' || ADMIN_ACTOR_RE.test(val),
-      'Actor identity must be 2–64 characters using letters, digits, or . _ : @ -'
-    )
-    .optional()
-    .default(''),
+    .min(1, 'Bootstrap administrator key is required.')
+    .max(512, 'Bootstrap administrator key is too long.'),
 });
 
 export const agentCreateSchema = z.object({

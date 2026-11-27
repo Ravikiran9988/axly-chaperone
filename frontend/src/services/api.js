@@ -2,36 +2,47 @@ import axios from 'axios';
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
 export const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS) || 15000;
-export const AUTH_MODE = (import.meta.env.VITE_AUTH_MODE || 'admin_key').trim().toLowerCase();
 
 /**
- * Strictly in-memory session credential holder.
- * Never persisted to localStorage, sessionStorage, or cookies by the client.
+ * In-memory CSRF token + authentication state only.
+ * Browser credentials stay inside the server-issued HttpOnly chaperone_session cookie —
+ * never persisted in localStorage, sessionStorage, or exposed as long-lived admin secrets.
  */
 const memorySession = {
-  adminKey: null,
-  actor: null,
+  authenticated: false,
+  csrfToken: null,
 };
 
 let unauthorizedHandler = null;
 
-export function setMemoryCredentials({ adminKey, actor }) {
-  memorySession.adminKey = adminKey ? String(adminKey).trim() : null;
-  memorySession.actor = actor ? String(actor).trim() || null : null;
+function readCookie(name) {
+  if (typeof document === 'undefined' || !document.cookie) return null;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${escaped}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
 }
 
+export function setAuthSessionState({ authenticated = true, csrfToken = null } = {}) {
+  memorySession.authenticated = Boolean(authenticated);
+  memorySession.csrfToken = csrfToken || readCookie('chaperone_csrf') || null;
+}
+
+export function clearAuthSessionState() {
+  memorySession.authenticated = false;
+  memorySession.csrfToken = null;
+}
+
+// Preserve backwards-compatible helper name for any existing UI/test imports
 export function clearMemoryCredentials() {
-  memorySession.adminKey = null;
-  memorySession.actor = null;
+  clearAuthSessionState();
 }
 
 export function hasMemoryCredentials() {
-  if (AUTH_MODE === 'session_cookie') return true;
-  return Boolean(memorySession.adminKey);
+  return memorySession.authenticated;
 }
 
-export function getMemoryActor() {
-  return memorySession.actor;
+export function getCsrfToken() {
+  return memorySession.csrfToken || readCookie('chaperone_csrf') || null;
 }
 
 export function registerUnauthorizedHandler(fn) {
@@ -44,7 +55,10 @@ export function registerUnauthorizedHandler(fn) {
 }
 
 export class ApiError extends Error {
-  constructor(message, { status = 0, code = 'UNKNOWN_ERROR', correlationId = null, details = null, retryAfter = null } = {}) {
+  constructor(
+    message,
+    { status = 0, code = 'UNKNOWN_ERROR', correlationId = null, details = null, retryAfter = null } = {}
+  ) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
@@ -125,19 +139,19 @@ export const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  withCredentials: AUTH_MODE === 'session_cookie',
+  withCredentials: true,
 });
 
+const UNSAFE_HTTP_METHODS = new Set(['post', 'put', 'patch', 'delete']);
+
 apiClient.interceptors.request.use((config) => {
-  if (AUTH_MODE === 'session_cookie') {
-    config.withCredentials = true;
-  } else if (!config.skipAuth && memorySession.adminKey) {
-    config.headers = config.headers || {};
-    if (!config.headers['X-Admin-Key']) {
-      config.headers['X-Admin-Key'] = memorySession.adminKey;
-    }
-    if (memorySession.actor && !config.headers['X-Admin-Actor']) {
-      config.headers['X-Admin-Actor'] = memorySession.actor;
+  config.withCredentials = true;
+  const method = (config.method || 'get').toLowerCase();
+  if (!config.skipCsrf && UNSAFE_HTTP_METHODS.has(method)) {
+    const csrf = getCsrfToken();
+    if (csrf) {
+      config.headers = config.headers || {};
+      config.headers['X-CSRF-Token'] = csrf;
     }
   }
   return config;

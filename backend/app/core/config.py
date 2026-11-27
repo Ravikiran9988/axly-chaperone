@@ -43,8 +43,23 @@ class Settings(BaseSettings):
     cors_origins: list[str] = Field(default_factory=list)
     cors_allow_methods: list[str] = Field(default_factory=lambda: ["GET", "POST", "PATCH"])
     cors_allow_headers: list[str] = Field(
-        default_factory=lambda: ["Content-Type", "X-Admin-Key", "X-Agent-Key", "X-Correlation-ID"]
+        default_factory=lambda: [
+            "Content-Type",
+            "X-Admin-Key",
+            "X-Agent-Key",
+            "X-Correlation-ID",
+            "X-CSRF-Token",
+        ]
     )
+
+    # Admin session cookies, CSRF & auth controls
+    admin_session_ttl_seconds: int = Field(default=3600, ge=60, le=86_400)
+    session_cookie_name: str = "chaperone_session"
+    csrf_cookie_name: str = "chaperone_csrf"
+    cookie_secure: bool | None = None
+    cookie_samesite: Literal["lax", "strict", "none"] = "lax"
+    allow_admin_api_key_header: bool = True
+    allow_bootstrap_key_login: bool = True
 
     # Phase 1 in-memory rate limiting strategy
     rate_limit_enabled: bool = True
@@ -98,6 +113,12 @@ class Settings(BaseSettings):
             return None
         value = self.api_key_pepper.get_secret_value()
         return value or None
+
+    def resolve_cookie_secure(self) -> bool:
+        """Use Secure cookies in staging/production unless explicitly configured."""
+        if self.cookie_secure is not None:
+            return self.cookie_secure
+        return self.env in {"production", "staging"}
 
 
 @lru_cache(maxsize=1)

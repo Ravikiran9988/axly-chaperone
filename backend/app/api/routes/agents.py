@@ -17,8 +17,8 @@ from app.schemas.agent import (
     AgentStatusUpdateRequest,
 )
 from app.schemas.common import PaginatedResponse
-from app.security.authentication import resolve_settings
-from app.security.authorization import require_admin
+from app.security.authentication import AdminPrincipal, resolve_settings
+from app.security.authorization import require_admin, require_super_admin
 from app.services.agent_service import AgentService
 
 router = APIRouter(
@@ -37,6 +37,7 @@ _agent_service = AgentService()
 )
 async def register_agent(
     payload: AgentCreateRequest,
+    _principal: AdminPrincipal = Depends(require_super_admin),
     session: AsyncSession = Depends(get_db_session),
     settings: Settings = Depends(resolve_settings),
 ) -> AgentCreateResponse:
@@ -102,6 +103,7 @@ async def get_agent(
 async def update_agent_status(
     agent_id: UUID,
     payload: AgentStatusUpdateRequest,
+    _principal: AdminPrincipal = Depends(require_super_admin),
     session: AsyncSession = Depends(get_db_session),
 ) -> AgentResponse:
     """Activate or disable an agent immediately."""

@@ -1,9 +1,12 @@
 """SQLAlchemy ORM models and shared domain enums."""
 
 from app.approvals.models import ApprovalRequest
+from app.models.admin import AdminSession, AdminUser
 from app.models.agent import Agent
-from app.models.audit import AuditEvent
+from app.models.audit import AuditChainState, AuditEvent
 from app.models.enums import (
+    AdminRole,
+    AdminStatus,
     AgentStatus,
     ApprovalStatus,
     AuditEventType,
@@ -19,10 +22,15 @@ from app.models.tool import Tool
 from app.verification.models import VerificationRecord
 
 __all__ = [
+    "AdminRole",
+    "AdminSession",
+    "AdminStatus",
+    "AdminUser",
     "Agent",
     "AgentStatus",
     "ApprovalRequest",
     "ApprovalStatus",
+    "AuditChainState",
     "AuditEvent",
     "AuditEventType",
     "DemoInvoice",

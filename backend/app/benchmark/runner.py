@@ -502,7 +502,6 @@ async def run_security_benchmark(*, write_reports: bool = True) -> dict[str, Any
 
         app = create_app(settings=settings, engine=engine)
         session_factory = build_session_factory(engine)
-        mcp_server = create_chaperone_mcp_server(session_factory=session_factory, settings=settings)
 
         try:
             with (
@@ -522,6 +521,11 @@ async def run_security_benchmark(*, write_reports: bool = True) -> dict[str, Any
                             ag3_id,
                             ag3_key,
                         ) = await _seed_benchmark_entities(client, admin_headers)
+                        mcp_server = create_chaperone_mcp_server(
+                            session_factory=session_factory,
+                            settings=settings,
+                            bound_agent_key=ag1_key,
+                        )
 
                         async with connect_in_memory_mcp(mcp_server) as mcp_client:
                             async with session_factory() as session:

@@ -73,7 +73,7 @@ Run the reproducible 64-scenario suite (`backend/app/benchmark/runner.py`) insid
 .\.venv\Scripts\python.exe -m app.benchmark.runner
 ```
 
-Measured results from `benchmarks/results/latest_benchmark.json` (`2026-11-27T16:16:20Z`, Windows 10, Python 3.12.13, 8 CPU cores, isolated SQLite benchmark instance, rate limiter disabled for throughput):
+Measured results from `benchmarks/results/latest_benchmark.json` (`2026-11-27T16:20:51.363192+00:00`, Windows 10, Python 3.12.13, 8 CPU cores, isolated SQLite benchmark instance, rate limiter disabled for throughput):
 
 | Metric | Measured Result | Ratio / Samples |
 |---|---|---|
@@ -83,9 +83,9 @@ Measured results from `benchmarks/results/latest_benchmark.json` (`2026-11-27T16
 | False-Block Rate | **0.00%** | 0 / 32 |
 | Policy Decision Accuracy | **100.00%** | 50 / 50 |
 | Outcome Verification Accuracy | **100.00%** | 26 / 26 |
-| `PolicyEngine.evaluate()` Latency | **0.200 ms** p50 / **0.347 ms** p95 | max `0.380 ms` (49 samples) |
-| Controlled Tool Adapter Latency | **14.761 ms** p50 / **32.495 ms** p95 | max `45.980 ms` (21 samples) |
-| Gateway Total Request Latency | **139.067 ms** p50 / **307.366 ms** p95 | max `339.008 ms` (64 samples, incl. PBKDF2 auth) |
+| `PolicyEngine.evaluate()` Latency | **0.151 ms** p50 / **0.322 ms** p95 | max `0.563 ms` (49 samples) |
+| Controlled Tool Adapter Latency | **13.526 ms** p50 / **19.771 ms** p95 | max `19.981 ms` (21 samples) |
+| Gateway Total Request Latency | **129.196 ms** p50 / **283.381 ms** p95 | max `431.632 ms` (64 samples, incl. PBKDF2 auth) |
 
 Full methodology and per-scenario tables: [docs/benchmark-methodology.md](docs/benchmark-methodology.md) and [benchmarks/results/latest_benchmark.md](benchmarks/results/latest_benchmark.md).
 

@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from app.api.routes import agents, approvals, audit, gateway, health, policies, tools
+from app.api.routes import agents, approvals, audit, auth, gateway, health, policies, tools
 from app.core.config import Settings, get_settings
 from app.core.database import build_engine, build_session_factory
 from app.core.exceptions import register_exception_handlers
@@ -70,7 +70,7 @@ def create_app(
         application.add_middleware(
             CORSMiddleware,
             allow_origins=resolved_settings.cors_origins,
-            allow_credentials=False,
+            allow_credentials="*" not in resolved_settings.cors_origins,
             allow_methods=resolved_settings.cors_allow_methods,
             allow_headers=resolved_settings.cors_allow_headers,
         )
@@ -82,6 +82,7 @@ def create_app(
     register_exception_handlers(application)
 
     application.include_router(health.router)
+    application.include_router(auth.router)
     application.include_router(agents.router)
     application.include_router(tools.router)
     application.include_router(policies.router)

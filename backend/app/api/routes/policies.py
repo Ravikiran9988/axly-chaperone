@@ -11,7 +11,8 @@ from app.core.database import get_db_session
 from app.models.enums import PolicyDecision
 from app.schemas.common import PaginatedResponse
 from app.schemas.policy import PolicyCreateRequest, PolicyResponse, PolicyUpdateRequest
-from app.security.authorization import require_admin
+from app.security.authentication import AdminPrincipal
+from app.security.authorization import require_admin, require_super_admin
 from app.services.policy_service import PolicyService
 
 router = APIRouter(
@@ -30,6 +31,7 @@ _policy_service = PolicyService()
 )
 async def create_policy(
     payload: PolicyCreateRequest,
+    _principal: AdminPrincipal = Depends(require_super_admin),
     session: AsyncSession = Depends(get_db_session),
 ) -> PolicyResponse:
     """Create a deterministic policy evaluated by the Chaperone policy engine."""
@@ -91,6 +93,7 @@ async def get_policy(
 async def update_policy(
     policy_id: UUID,
     payload: PolicyUpdateRequest,
+    _principal: AdminPrincipal = Depends(require_super_admin),
     session: AsyncSession = Depends(get_db_session),
 ) -> PolicyResponse:
     """Update mutable properties on a policy and increment its version."""

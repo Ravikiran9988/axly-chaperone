@@ -94,3 +94,18 @@ class AuditEventType(StrEnum):
     EXECUTION_COMPLETED = "execution_completed"
     EXECUTION_FAILED = "execution_failed"
     VERIFICATION_COMPLETED = "verification_completed"
+
+
+class AdminRole(StrEnum):
+    """Role-based access levels for authenticated Chaperone administrative principals."""
+
+    SUPER_ADMIN = "super_admin"
+    APPROVER = "approver"
+    VIEWER = "viewer"
+
+
+class AdminStatus(StrEnum):
+    """Lifecycle status for individual administrator accounts."""
+
+    ACTIVE = "active"
+    DISABLED = "disabled"

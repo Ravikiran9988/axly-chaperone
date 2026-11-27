@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from fastapi import Request
-from sqlalchemy import MetaData, text
+from sqlalchemy import MetaData, event, text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -42,12 +42,27 @@ def build_engine(
         "echo": echo,
         "pool_pre_ping": True,
     }
-    if not database_url.startswith("sqlite"):
+    if database_url.startswith("sqlite"):
+        kwargs["connect_args"] = {"timeout": 30}
+    else:
         kwargs["pool_size"] = pool_size
         kwargs["max_overflow"] = max_overflow
         if database_url.startswith("postgresql"):
             kwargs["connect_args"] = {"command_timeout": 30, "timeout": 10}
-    return create_async_engine(database_url, **kwargs)
+    engine = create_async_engine(database_url, **kwargs)
+    if database_url.startswith("sqlite"):
+
+        @event.listens_for(engine.sync_engine, "connect")
+        def _configure_sqlite_pragma(dbapi_connection: Any, _connection_record: Any) -> None:
+            cursor = dbapi_connection.cursor()
+            try:
+                cursor.execute("PRAGMA busy_timeout=30000")
+                if ":memory:" not in database_url:
+                    cursor.execute("PRAGMA journal_mode=WAL")
+            finally:
+                cursor.close()
+
+    return engine
 
 
 def build_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:

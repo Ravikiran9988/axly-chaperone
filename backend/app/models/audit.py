@@ -107,6 +107,13 @@ class AuditEvent(Base):
         default=ExecutionStatus.NOT_EXECUTED.value,
     )
     verification_status: Mapped[str] = mapped_column(String(64), nullable=False)
+    chain_seq: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        unique=True,
+        index=True,
+    )
+    previous_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     record_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         UTCDateTime,
@@ -114,6 +121,24 @@ class AuditEvent(Base):
         default=utc_now,
         server_default=func.now(),
         index=True,
+    )
+
+
+class AuditChainState(Base):
+    """Single-row serialized tail state for the append-only audit hash chain."""
+
+    __tablename__ = "audit_chain_state"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    last_seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="0" * 64)
+    last_created_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime,
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+        server_default=func.now(),
     )
 
 
