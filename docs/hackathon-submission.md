@@ -1,45 +1,25 @@
-# AXLY Chaperone — Hackathon Submission Material
+# Hackathon Submission Summary — AXLY Chaperone
 
-## Short Description
-**AXLY Chaperone** (*Safe autonomy. Human control.*) is an AI Agent Security & Governance Gateway that intercepts every tool call made over HTTP or MCP, authenticates the agent, evaluates deterministic least-privilege policies, gates sensitive actions behind SHA-256-bound human approvals, executes only through controlled adapters, independently verifies outcomes, and preserves an append-only tamper-evident audit trail.
+**Product Name:** AXLY Chaperone  
+**Tagline:** *Safe autonomy. Human control.*  
+**Category:** AI Agent Security & Governance Gateway
 
 ## Problem Statement
-Autonomous AI agents connected to filesystems, email, and databases routinely operate with overly broad credentials and zero runtime mediation. A single indirect prompt injection hidden inside an untrusted document—or a hallucinated parameter from a model—can trick an agent into reading private secrets, exfiltrating data to external recipients, or modifying production database rows. Worse, standard agent frameworks blindly trust tool return booleans without checking whether an intended state change actually happened safely.
 
-## Solution
-AXLY Chaperone acts as a mandatory security boundary between AI agents (or MCP clients) and real capabilities:
-- **Zero-Bypass Interception:** Both REST (`/api/v1/gateway/evaluate`, `/api/v1/gateway/execute`) and official `mcp` SDK server calls route through `GatewayService`.
-- **Deterministic Least-Privilege Policy Engine:** Default-deny evaluation in pure Python (no LLM in the authorization loop), strict resource normalization (blocking traversal, NTFS ADS, symlinks/junctions, and argument smuggling), and fail-safe precedence (`DENY` hard-blocks all rules; ties favor `REQUIRE_APPROVAL`).
-- **Tamper-Resistant Human-in-the-Loop Approvals:** Sensitive operations pause in `PENDING` state with SHA-256 payload binding (`payload_hash`), expiration TTLs, atomic Compare-And-Swap execution claims, and pre-execution policy re-evaluation.
-- **Independent Outcome Verification:** `VerificationEngine` inspects the sandbox disk, `mock_emails` table, and `demo_*` database tables independently rather than trusting adapter return flags.
-- **Append-Only Auditability & Governance Console:** Every request, block, approval, execution, and verification is recorded in `audit_events` with canonical SHA-256 `record_hash` integrity digests and surfaced in a dark-first React governance dashboard.
+Autonomous AI agents equipped with filesystem, database, email, and MCP tools execute arbitrary capabilities at machine speed. Relying on model system prompts alone fails against indirect prompt injection, while sharing static API keys with LLM contexts exposes credentials directly to untrusted model outputs.
 
-## Key Differentiators
-1. **Deterministic least-privilege authorization** without LLM guesswork.
-2. **Unified HTTP + MCP tool interception** with zero direct adapter exposure.
-3. **Cryptographically bound human approval workflow** immune to replay and post-approval tampering.
-4. **Independent post-execution outcome verification** that catches silent failures and lying adapters.
-5. **End-to-end correlation-ID auditability** with ORM immutability guards and integrity verification.
-6. **Reproducible 64-scenario security benchmark** separating policy latency from adapter execution.
+## Solution Overview
 
-## Technical Architecture
-- **Backend:** Python 3.12, FastAPI, SQLAlchemy 2.x (async), Alembic migrations, PostgreSQL / SQLite (isolated tests), official Python `mcp` SDK, PBKDF2-HMAC-SHA256 API key hashing.
-- **Security Layers:** `CorrelationIdMiddleware`, `SecurityHeadersMiddleware`, bounded `RateLimitMiddleware`, `RequestSizeLimitMiddleware`, `PolicyEngine`, `ApprovalService`, `ExecutionDispatcher`, `VerificationEngine`, `AuditService`.
-- **Frontend:** React 18, JavaScript, Vite, Tailwind CSS, React Router v7, TanStack Query, Axios, Recharts, React Hook Form, Zod v4 (in-memory admin authentication; zero `localStorage` secret persistence).
+AXLY Chaperone places a **deterministic capability security boundary** in front of all agent tool calls:
 
-## Measured Evidence (From Actual Benchmark Run)
-Executed on `2026-11-27T16:20:51.363192+00:00` (`Windows-10`, Python `3.12.13`, 8 CPU cores, isolated SQLite benchmark instance) via `python -m app.benchmark.runner`:
-- **Total Scenarios:** `64` (`32` malicious/unauthorized, `32` legitimate) — **64 passed, 0 failed, 0 skipped**
-- **Security Blocking Rate:** `100.00%` (`32 / 32` unauthorized actions prevented)
-- **Legitimate Task Success Rate:** `100.00%` (`32 / 32` legitimate scenarios succeeded)
-- **False-Block Rate:** `0.00%` (`0 / 32`)
-- **Policy Decision Accuracy:** `100.00%` (`50 / 50`)
-- **Outcome Verification Accuracy:** `100.00%` (`26 / 26`)
-- **Pure `PolicyEngine.evaluate()` Latency:** `p50 = 0.151 ms`, `p95 = 0.322 ms`, `max = 0.563 ms`
-- **Gateway Total Request Latency (incl. PBKDF2 auth & audit commit):** `p50 = 129.196 ms`, `p95 = 283.381 ms`, `max = 431.632 ms`
+1. **Credential Separation (Out-of-Band MCP):** Tools exposed via MCP contain zero API keys; `ChaperoneMCPServer` binds agent identity externally and fails closed on unbound or smuggled credentials.
+2. **Deterministic Default-Deny Policy Engine:** `PolicyEngine` enforces `EXPLICIT_DENY > REQUIRE_APPROVAL > ALLOW > DEFAULT_DENY` in pure Python (`p50 = 0.054 ms`), independent of LLM persuasion.
+3. **Human-in-the-Loop Governance Console:** React dashboard protected by `HttpOnly` cookie sessions, double-submit CSRF tokens, server-derived RBAC (`super_admin`, `approver`, `viewer`), payload-hash tamper protection, TTL expiry, and atomic single execution.
+4. **TOCTOU-Safe Adapters & Verification:** Non-reparse/no-follow OS handle verification prevents symlink escapes, while `VerificationEngine` independently checks filesystem write hashes, read digests, directory listings, DB mutations, and email drafts.
+5. **Hash-Chained Audit Integrity:** Sequential SHA-256 hash chaining spans decision/execution metadata with full-chain anomaly detection.
 
-## Scope & Honest Limitations
-- AXLY Chaperone provides **capability-level enforcement**, not semantic prompt-injection NLP classification: it prevents hijacked agents from invoking unauthorized or unapproved tools, rather than claiming to block every conceivable text-level jailbreak within an explicitly permitted read/write scope.
-- Current release uses a single bootstrap `CHAPERONE_ADMIN_API_KEY` rather than multi-admin OIDC/RBAC.
-- Controlled execution covers three sandboxed/mock providers (`file_tool`, `email_tool`, `database_tool`) rather than live external SMTP or arbitrary SQL hosts.
-- Rate limiting uses a process-local bounded sliding window; horizontally scaled deployments should enforce rate limits at an external gateway or Redis.
+## Measured Evidence & Verification
+
+- **Security Benchmark (68 Scenarios):** `68 / 68` passed (`34 / 34` malicious blocked, `34 / 34` legitimate allowed, `0` false positives/negatives, `100.00%` outcome verification accuracy) at `200,000` PBKDF2 iterations with active rate limiting.
+- **Optional Real-LLM Integration:** `python -m app.demo.hackathon_demo --mode auto|llm|fallback` exercises either live OpenAI-compatible tool calling or deterministic fallback transparently (`execution_mode`).
+- **CI Verification:** Automated workflow runs Ruff linting, Alembic migrations, pytest, and the 68-scenario benchmark against `postgres:16-alpine`, alongside React Vitest/production build checks and Gitleaks scanning.

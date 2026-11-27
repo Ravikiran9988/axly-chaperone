@@ -1,29 +1,34 @@
-# AXLY Chaperone — MCP Integration
+# MCP Integration Guide
 
-AXLY Chaperone exposes a Model Context Protocol (MCP) server built on the official Python `mcp` SDK (`backend/app/adapters/mcp/`).
+AXLY Chaperone exposes governance-enforced MCP tools via `ChaperoneMCPServer` (`backend/app/adapters/mcp/server.py`) and `ChaperoneMCPClient` (`backend/app/adapters/mcp/client.py`).
 
-## Design Principle: Zero Bypass
+## Out-of-Band Authentication Design
 
-AI clients connecting over MCP **never** talk directly to `FileToolAdapter`, `EmailToolAdapter`, or `DatabaseToolAdapter`. Every `call_tool` invocation passes through:
+Earlier prototypes required `agent_api_key` inside MCP tool arguments, which leaked credentials into LLM tool schemas (`tools/list`) and model contexts. Chaperone now binds agent credentials strictly **out of band**:
 
-1. Strict Pydantic v2 schema validation (`McpFileToolInput`, `McpEmailToolInput`, `McpDatabaseToolInput` with `extra="forbid"`).
-2. `authenticate_agent_key` using `agent_api_key` (or `CHAPERONE_MCP_AGENT_KEY` for local `stdio` sessions), with failed auth attempts audited before returning a sanitized MCP error.
-3. `GatewayService.execute_request`, enforcing deterministic policies, human approvals (`approval_id` two-step execution supported), execution timeouts, independent verification, and append-only audit logging.
-4. End-to-end `correlation_id` propagation across MCP responses and `audit_events`.
+- **Zero Secrets in Model Schemas (`tools/list`):** `McpToolCallEnvelope` (`backend/app/adapters/mcp/schemas.py`) excludes `agent_api_key` and credential fields from every MCP tool schema exposed to an LLM.
+- **Server-Side Credential Binding:** `ChaperoneMCPServer` resolves the agent identity exclusively from:
+  1. `bound_agent_key` passed cleanly at server construction (in-process/transport authentication),
+  2. an injected async/sync `credential_provider`, or
+  3. process environment `CHAPERONE_MCP_AGENT_KEY` (via `connect_stdio_mcp(..., agent_api_key=...)` passing env to the child stdio process rather than tool arguments).
+- **Fail-Closed Validation & Anti-Smuggling:**
+  - Unbound MCP calls return `AUTHENTICATION_FAILED` immediately before touching any adapter and emit an audit event.
+  - Any tool call attempting to smuggle credential keys (`agent_api_key`, `api_key`, `x_agent_key`, `admin_api_key`) in payload arguments fails closed with `INVALID_MCP_ARGUMENTS`.
 
-## Exposed MCP Tools
+## Available MCP Tools
 
-- `file_tool`: actions `read`, `write`, `list` (sandboxed to `CHAPERONE_SANDBOX_DIR`)
-- `email_tool`: actions `create_draft`, `send`, `read` (local `mock_emails` store)
-- `database_tool`: actions `read`, `create`, `update` (allowlisted `demo_invoices`, `demo_tasks`)
+- `file_tool` (`read`, `write`, `list`)
+- `database_tool` (`read_records`, `update_record`)
+- `email_tool` (`list_drafts`, `create_draft`, `send`)
 
-## Running Over `stdio` Transport
+Every MCP call routes cleanly through `GatewayService` -> `PolicyEngine` -> `ApprovalService` -> hardened adapters -> `VerificationEngine` -> hash-chained `AuditService`.
+
+## Running the Stdio MCP Server
 
 ```powershell
-# Windows PowerShell (from backend/)
-$env:CHAPERONE_DATABASE_URL="postgresql+asyncpg://postgres:YOUR_PASSWORD@127.0.0.1:5432/axly_chaperone"
-$env:CHAPERONE_MCP_AGENT_KEY="axly_ag_..."
-.\.venv\Scripts\python.exe -m app.adapters.mcp.server
+cd backend
+$env:CHAPERONE_MCP_AGENT_KEY="chp_agent_..."
+python -m app.adapters.mcp.server
 ```
 
-*(Note: MCP currently operates over `stdio` / in-memory SDK streams rather than an HTTP SSE endpoint, so the React Settings page explicitly reports MCP HTTP telemetry as not exposed.)*
+Do not prompt or provide agent API keys to the LLM runtime; pass them solely in the hosting transport environment.

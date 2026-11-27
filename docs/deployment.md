@@ -1,64 +1,38 @@
-# AXLY Chaperone — Deployment Guide
+# Deployment & Hardening Guide
 
-AXLY Chaperone supports both bare-metal/VM deployment (Windows PowerShell or Linux/macOS systemd) and optional Docker Compose isolation.
+Chaperone targets stateless FastAPI backend containers + PostgreSQL 16 + Nginx-served React frontend SPA.
 
-## 1. Local Windows PowerShell Development
+## Production Security Checklist
+
+1. **Secrets & Environment Configuration (`backend/.env.production.example`):**
+   - Set strong `CHAPERONE_DATABASE_URL` (PostgreSQL with TLS in production) and `CHAPERONE_ADMIN_API_KEY` (`>= 32` chars via `python -m app.cli generate-admin-key`).
+   - Set `CHAPERONE_API_KEY_PEPPER` prior to issuing agent keys; keep `CHAPERONE_API_KEY_HASH_ITERATIONS=200000`.
+   - Keep `CHAPERONE_ALLOW_ADMIN_API_KEY_HEADER=false` and `CHAPERONE_ALLOW_BOOTSTRAP_KEY_LOGIN=false` once individual `super_admin` and `approver` accounts are provisioned.
+2. **Individual RBAC Accounts & Session Cookies:**
+   - Provision named administrators via `python -m app.cli create-admin-user --username <user> --role super_admin` (minimum 12-char password) or `POST /api/v1/auth/users`.
+   - Enforce HTTPS termination in Nginx/Ingress so `chaperone_session` (`HttpOnly`, `SameSite=lax|strict`, `Secure=true`) and `chaperone_csrf` (`X-CSRF-Token`) remain protected in transit.
+3. **Database Migrations & Backups:**
+   - Run `alembic upgrade head` (`0004_security_remediation`) before booting traffic.
+   - Automate `pg_dump` encrypted backups and replicate audit hashes externally (WORM S3 Object Lock / SIEM) so a compromised DB superuser cannot silently rewrite `audit_events` + `audit_chain_state`.
+4. **Rate Limiting & Worker Topology:**
+   - Because Chaperone's built-in rate limiter runs in-memory per Python worker (`CHAPERONE_RATE_LIMIT_REQUESTS=120`), run **1 worker per replica** (`uvicorn app.main:app --workers 1`) and place Nginx `limit_req` / WAF / Redis rate limiting in front for horizontal scaling.
+5. **Filesystem Sandbox Isolation:**
+   - Mount `CHAPERONE_SANDBOX_DIR` on a dedicated non-privileged volume owned solely by the service account with `noexec,nosuid,nodev` mount flags on Linux.
+
+## Local Docker Compose Preview
 
 ```powershell
-# Backend
-cd backend
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements-dev.txt
-.\.venv\Scripts\python.exe -m app.cli generate-admin-key
-Copy-Item .env.example .env
-# Edit backend/.env with PostgreSQL CHAPERONE_DATABASE_URL, CHAPERONE_ADMIN_API_KEY,
-# and CHAPERONE_CORS_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173"]
-.\.venv\Scripts\alembic.exe upgrade head
-.\.venv\Scripts\uvicorn.exe app.main:app --host 127.0.0.1 --port 8000 --reload
-
-# Frontend (new terminal)
-cd frontend
-npm install
-Copy-Item .env.example .env
-npm run dev
+cd deploy
+# Create .env with POSTGRES_PASSWORD and CHAPERONE_ADMIN_API_KEY (>= 32 chars)
+docker compose up --build
 ```
 
-## 2. Production Deployment (Bare Metal / VM — Recommended)
+- Web console + reverse proxy (`deploy/nginx.conf`): `http://localhost:8080`
+- Notice `deploy/docker-compose.yml` defaults `CHAPERONE_COOKIE_SECURE=false` strictly for local non-TLS `http://localhost:8080` testing; set `CHAPERONE_COOKIE_SECURE=true` behind HTTPS.
 
-### Backend Setup
-1. Copy `backend/.env.production.example` to `backend/.env`.
-2. Set:
-   - `CHAPERONE_ENV=production` (disables `/docs`, `/redoc`, `/openapi.json`, enforces >= 32-char `CHAPERONE_ADMIN_API_KEY` and forbids `*` CORS).
-   - `CHAPERONE_DATABASE_URL=postgresql+asyncpg://...`
-   - `CHAPERONE_ADMIN_API_KEY` (generated via `python -m app.cli generate-admin-key`).
-   - `CHAPERONE_CORS_ORIGINS=["https://console.example.com"]`.
-   - Restrictive PostgreSQL role on `audit_events` and `verification_records` (`REVOKE UPDATE, DELETE`).
-3. Apply migrations and launch Uvicorn:
-   - Windows PowerShell: `.\deploy\start_backend.ps1 -BindHost 127.0.0.1 -Port 8000`
-   - Linux/macOS: `./deploy/start_backend.sh`
-4. Verify probes:
-   - `GET /health` -> `200 {"status": "ok", ...}`
-   - `GET /ready` -> `200 {"status": "ready", "database": "connected"}`
+## Continuous Integration (`.github/workflows/ci.yml`)
 
-### Frontend Production Build & Reverse Proxy
-1. Copy `frontend/.env.production.example` to `frontend/.env` (`VITE_API_BASE_URL=""` when served behind `deploy/nginx.conf`, or explicit HTTPS backend origin).
-2. Build static bundle:
-   ```bash
-   cd frontend
-   npm ci
-   npm run build
-   ```
-3. Serve `frontend/dist/` using `deploy/nginx.conf` behind TLS termination.
-
-## 3. Optional Container Deployment (Docker Compose)
-
-For isolated container execution (PostgreSQL 16 + Chaperone API + Nginx SPA):
-
-```bash
-export POSTGRES_PASSWORD="strong_db_password"
-export CHAPERONE_ADMIN_API_KEY="$(python -m app.cli generate-admin-key)"
-docker compose -f deploy/docker-compose.yml up -d --build
-```
-
-Console will listen on `http://localhost:8080` with `/api/`, `/health`, and `/ready` proxied internally to the backend container.
+GitHub Actions executes on every push/PR:
+- **Backend job (`postgres:16-alpine` service):** `ruff format --check`, `ruff check`, `alembic upgrade head` / `downgrade` / `upgrade`, full `pytest -v`, and `python -m app.benchmark.runner --no-write` against live PostgreSQL.
+- **Frontend job:** `npm ci`, `npm test`, `npm audit --omit=dev --audit-level=high`, `npm run build`.
+- **Hygiene & Secrets job:** Ensures zero tracked `.env` files (outside `.env*.example`) and scans commits with `gitleaks`.
