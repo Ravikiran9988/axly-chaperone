@@ -71,7 +71,7 @@ async def test_mcp_server_registration_auth_policy_and_errors(
         tool_names = {tool.name for tool in tools}
         assert {"file_tool", "email_tool", "database_tool"} == tool_names
         for tool in tools:
-            props = tool.inputSchema.get("properties", {})
+            props = tool.input_schema.get("properties", {})
             assert "agent_api_key" not in props
             assert "api_key" not in props
             assert "x_agent_key" not in props

@@ -565,6 +565,7 @@ class GatewayService:
             arguments=payload.arguments,
             execution_succeeded=exec_ok,
             execution_metadata=dispatch_res.metadata,
+            execution_output=dispatch_res.output if exec_ok else None,
             settings=settings,
             audit_event_id=exec_audit.id,
         )

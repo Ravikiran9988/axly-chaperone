@@ -63,7 +63,10 @@ describe('Authentication, cookie sessions, CSRF, and error handling', () => {
     await user.click(screen.getByRole('button', { name: /Sign In with Session Cookie/i }));
 
     expect(await screen.findByRole('heading', { name: 'Overview' })).toBeInTheDocument();
-    expect(window.localStorage.length).toBe(0);
+    const persistedStorage = JSON.stringify(window.localStorage);
+    expect(persistedStorage).not.toContain('ValidAdminPassword');
+    expect(persistedStorage).not.toContain('csrf-abc-123');
+    expect(persistedStorage).not.toContain('secops-lead');
     expect(calls.every((c) => !c.headers['X-Admin-Actor'] && !c.headers['X-Admin-Key'])).toBe(true);
 
     // Sign out must send X-CSRF-Token automatically

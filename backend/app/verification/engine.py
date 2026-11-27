@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-import os
+import json
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,8 +13,12 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.adapters.base import AdapterSecurityError
-from app.adapters.file_adapter import resolve_sandbox_target
+from app.adapters.base import AdapterSecurityError, AdapterValidationError
+from app.adapters.file_adapter import (
+    list_sandbox_dir_verified,
+    read_sandbox_file_verified,
+    resolve_sandbox_target,
+)
 from app.core.config import Settings
 from app.models.enums import VerificationOutcome
 from app.models.mock_state import DemoInvoice, DemoTask, MockEmailRecord
@@ -33,6 +37,29 @@ class VerificationResult:
     observed_outcome: dict[str, Any]
 
 
+def _normalize_entries_signature(entries: Any) -> list[dict[str, Any]] | None:
+    if not isinstance(entries, list):
+        return None
+    normalized: list[dict[str, Any]] = []
+    for item in entries:
+        if not isinstance(item, dict) or not isinstance(item.get("name"), str):
+            return None
+        normalized.append(
+            {
+                "name": str(item["name"]),
+                "type": str(item.get("type", "")),
+                "size_bytes": item.get("size_bytes"),
+            }
+        )
+    normalized.sort(key=lambda entry: entry["name"])
+    return normalized
+
+
+def _digest_entries(entries: list[dict[str, Any]]) -> str:
+    canonical = json.dumps(entries, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 class VerificationEngine:
     """Independently inspects sandbox filesystem and database state to verify outcomes."""
 
@@ -48,6 +75,7 @@ class VerificationEngine:
         execution_succeeded: bool,
         execution_metadata: dict[str, Any],
         settings: Settings,
+        execution_output: dict[str, Any] | None = None,
         audit_event_id: UUID | None = None,
         approval_id: UUID | None = None,
         expected_override: dict[str, Any] | None = None,
@@ -64,6 +92,8 @@ class VerificationEngine:
                 action=action,
                 resource=resource,
                 arguments=arguments,
+                execution_metadata=execution_metadata,
+                execution_output=execution_output,
                 settings=settings,
                 expected_override=expected_override,
             )
@@ -124,12 +154,14 @@ class VerificationEngine:
         action: str,
         resource: str,
         arguments: dict[str, Any],
+        execution_metadata: dict[str, Any],
+        execution_output: dict[str, Any] | None,
         settings: Settings,
         expected_override: dict[str, Any] | None,
     ) -> tuple[VerificationOutcome, str, dict[str, Any], dict[str, Any], str]:
         sandbox_root = Path(settings.sandbox_dir)
         try:
-            target = resolve_sandbox_target(sandbox_root, resource)
+            resolve_sandbox_target(sandbox_root, resource)
         except (AdapterSecurityError, ValueError):
             return (
                 VerificationOutcome.FAILED,
@@ -148,7 +180,13 @@ class VerificationEngine:
                 "content_sha256": hashlib.sha256(expected_bytes).hexdigest(),
                 "size_bytes": len(expected_bytes),
             }
-            if not target.exists() or os.path.islink(target) or not target.is_file():
+            try:
+                actual_bytes, actual_digest = read_sandbox_file_verified(
+                    sandbox_root,
+                    resource,
+                    max_bytes=settings.max_file_size_bytes,
+                )
+            except FileNotFoundError:
                 return (
                     VerificationOutcome.FAILED,
                     "sandbox_file_hash_check",
@@ -156,8 +194,14 @@ class VerificationEngine:
                     {"exists": False},
                     "Expected written file does not exist as a regular file inside sandbox.",
                 )
-            try:
-                actual_bytes = target.read_bytes()
+            except (AdapterSecurityError, AdapterValidationError):
+                return (
+                    VerificationOutcome.FAILED,
+                    "sandbox_file_hash_check",
+                    expected,
+                    {"exists": False},
+                    "Target file failed security handle check during independent verification.",
+                )
             except OSError:
                 return (
                     VerificationOutcome.INCONCLUSIVE,
@@ -169,7 +213,7 @@ class VerificationEngine:
             observed = {
                 "exists": True,
                 "is_file": True,
-                "content_sha256": hashlib.sha256(actual_bytes).hexdigest(),
+                "content_sha256": actual_digest,
                 "size_bytes": len(actual_bytes),
             }
             if observed == expected:
@@ -189,40 +233,199 @@ class VerificationEngine:
             )
 
         if action == "read":
-            expected = expected_override or {"exists": True, "is_file": True}
-            exists = target.exists() and not os.path.islink(target) and target.is_file()
-            observed = {"exists": exists, "is_file": exists}
-            if observed == expected:
+            try:
+                actual_bytes, actual_digest = read_sandbox_file_verified(
+                    sandbox_root,
+                    resource,
+                    max_bytes=settings.max_file_size_bytes,
+                )
+            except FileNotFoundError:
+                return (
+                    VerificationOutcome.FAILED,
+                    "sandbox_file_read_digest_check",
+                    expected_override or {"exists": True, "is_file": True},
+                    {"exists": False, "is_file": False},
+                    "Read target could not be confirmed inside sandbox.",
+                )
+            except (AdapterSecurityError, AdapterValidationError):
+                return (
+                    VerificationOutcome.FAILED,
+                    "sandbox_file_read_digest_check",
+                    expected_override or {"exists": True, "is_file": True},
+                    {"exists": False, "is_file": False},
+                    "Read target failed security handle check during verification.",
+                )
+            except OSError:
+                return (
+                    VerificationOutcome.INCONCLUSIVE,
+                    "sandbox_file_read_digest_check",
+                    expected_override or {"exists": True, "is_file": True},
+                    {"readable": False},
+                    "Could not independently reopen read target inside sandbox.",
+                )
+
+            if expected_override is not None:
+                observed_basic = {"exists": True, "is_file": True}
+                matched = observed_basic == expected_override
+                return (
+                    VerificationOutcome.VERIFIED if matched else VerificationOutcome.FAILED,
+                    "sandbox_file_read_digest_check",
+                    expected_override,
+                    observed_basic,
+                    "Read target independently confirmed inside sandbox."
+                    if matched
+                    else "Read verification failed against expected condition.",
+                )
+
+            if execution_output is None:
+                return (
+                    VerificationOutcome.INCONCLUSIVE,
+                    "sandbox_file_read_digest_check",
+                    {"path": resource, "has_output": True},
+                    {"path": resource, "has_output": False},
+                    "Adapter output unavailable; read content could not be verified.",
+                )
+
+            observed = {
+                "exists": True,
+                "is_file": True,
+                "path": resource,
+                "content_sha256": actual_digest,
+                "size_bytes": len(actual_bytes),
+            }
+            claimed_content = execution_output.get("content")
+            if not isinstance(claimed_content, str):
+                return (
+                    VerificationOutcome.FAILED,
+                    "sandbox_file_read_digest_check",
+                    {"exists": True, "is_file": True, "path": resource, "has_content": True},
+                    observed,
+                    "Adapter read response omitted text content for verification.",
+                )
+
+            # Compare UTF-8 normalized bytes if valid UTF-8 or fallback decoded text consistently
+            disk_decoded_bytes = actual_bytes.decode("utf-8", errors="replace").encode("utf-8")
+            claimed_bytes = claimed_content.encode("utf-8")
+            claimed_digest = hashlib.sha256(claimed_bytes).hexdigest()
+            disk_decoded_digest = hashlib.sha256(disk_decoded_bytes).hexdigest()
+            claimed_size = execution_output.get("size_bytes", len(claimed_bytes))
+            meta_digest = execution_metadata.get("content_sha256")
+            claimed_evidence = {
+                "exists": True,
+                "is_file": True,
+                "path": str(execution_output.get("path", resource)),
+                "content_sha256": claimed_digest,
+                "size_bytes": claimed_size,
+            }
+            matches = (
+                (claimed_digest == actual_digest or claimed_digest == disk_decoded_digest)
+                and claimed_size == len(actual_bytes)
+                and (meta_digest is None or meta_digest == actual_digest)
+                and str(execution_output.get("path", resource)) == resource
+            )
+            if matches:
                 return (
                     VerificationOutcome.VERIFIED,
-                    "sandbox_file_presence_check",
-                    expected,
+                    "sandbox_file_read_digest_check",
+                    claimed_evidence,
                     observed,
-                    "Read target independently confirmed inside sandbox.",
+                    "Read file content SHA-256 digest and byte length independently verified.",
                 )
             return (
                 VerificationOutcome.FAILED,
-                "sandbox_file_presence_check",
-                expected,
+                "sandbox_file_read_digest_check",
+                claimed_evidence,
                 observed,
-                "Read target could not be confirmed inside sandbox.",
+                "Adapter read output did not match actual sandbox file SHA-256 digest or length.",
             )
 
-        # list action
-        expected = expected_override or {"exists": True, "is_dir": True}
-        is_dir = target.exists() and not os.path.islink(target) and target.is_dir()
-        observed = {"exists": is_dir, "is_dir": is_dir}
-        status = (
-            VerificationOutcome.VERIFIED if observed == expected else VerificationOutcome.FAILED
-        )
+        # list action: independently inspect directory entries and compare names, types, sizes
+        try:
+            actual_entries = list_sandbox_dir_verified(sandbox_root, resource)
+        except FileNotFoundError:
+            return (
+                VerificationOutcome.FAILED,
+                "sandbox_directory_entries_check",
+                expected_override or {"exists": True, "is_dir": True},
+                {"exists": False, "is_dir": False},
+                "Directory missing inside sandbox.",
+            )
+        except (AdapterSecurityError, AdapterValidationError):
+            return (
+                VerificationOutcome.FAILED,
+                "sandbox_directory_entries_check",
+                expected_override or {"exists": True, "is_dir": True},
+                {"exists": False, "is_dir": False},
+                "Directory failed security handle check during verification.",
+            )
+        except OSError:
+            return (
+                VerificationOutcome.INCONCLUSIVE,
+                "sandbox_directory_entries_check",
+                expected_override or {"exists": True, "is_dir": True},
+                {"readable": False},
+                "Could not independently inspect sandbox directory.",
+            )
+
+        if expected_override is not None:
+            observed_dir = {"exists": True, "is_dir": True}
+            matched = observed_dir == expected_override
+            return (
+                VerificationOutcome.VERIFIED if matched else VerificationOutcome.FAILED,
+                "sandbox_directory_entries_check",
+                expected_override,
+                observed_dir,
+                "Sandbox directory verified."
+                if matched
+                else "Directory failed expected override check.",
+            )
+
+        if execution_output is None:
+            return (
+                VerificationOutcome.INCONCLUSIVE,
+                "sandbox_directory_entries_check",
+                {"directory": resource, "has_output": True},
+                {"directory": resource, "has_output": False},
+                "Adapter output unavailable; directory listing could not be verified.",
+            )
+
+        actual_sig = _normalize_entries_signature(actual_entries) or []
+        observed_summary = {
+            "directory": resource,
+            "entry_count": len(actual_sig),
+            "entries_sha256": _digest_entries(actual_sig),
+            "entry_names": [item["name"] for item in actual_sig[:50]],
+        }
+        claimed_sig = _normalize_entries_signature(execution_output.get("entries"))
+        if claimed_sig is None:
+            return (
+                VerificationOutcome.FAILED,
+                "sandbox_directory_entries_check",
+                {"directory": str(execution_output.get("directory", resource)), "entries": None},
+                observed_summary,
+                "Adapter directory response omitted valid entry list.",
+            )
+
+        claimed_summary = {
+            "directory": str(execution_output.get("directory", resource)),
+            "entry_count": len(claimed_sig),
+            "entries_sha256": _digest_entries(claimed_sig),
+            "entry_names": [item["name"] for item in claimed_sig[:50]],
+        }
+        if claimed_summary == observed_summary and claimed_sig == actual_sig:
+            return (
+                VerificationOutcome.VERIFIED,
+                "sandbox_directory_entries_check",
+                claimed_summary,
+                observed_summary,
+                "Sandbox directory entry names, types, sizes, and digest independently verified.",
+            )
         return (
-            status,
-            "sandbox_directory_presence_check",
-            expected,
-            observed,
-            "Sandbox directory verified."
-            if status == VerificationOutcome.VERIFIED
-            else "Directory missing.",
+            VerificationOutcome.FAILED,
+            "sandbox_directory_entries_check",
+            claimed_summary,
+            observed_summary,
+            "Adapter directory listing did not match actual sandbox directory entries.",
         )
 
     async def _verify_email_state(

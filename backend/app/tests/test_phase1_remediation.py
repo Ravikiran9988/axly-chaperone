@@ -77,7 +77,7 @@ async def test_phase1_mcp_no_api_key_in_schema_and_out_of_band_binding(
         tools = await mcp.list_tools()
         assert len(tools) == 3
         for tool in tools:
-            serialized_schema = str(tool.inputSchema).lower()
+            serialized_schema = str(tool.input_schema).lower()
             assert "agent_api_key" not in serialized_schema
             assert "api_key" not in serialized_schema
 

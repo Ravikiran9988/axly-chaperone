@@ -510,6 +510,7 @@ class ApprovalService:
             arguments=approval.sanitized_arguments,
             execution_succeeded=exec_succeeded,
             execution_metadata=dispatch_res.metadata,
+            execution_output=dispatch_res.output if exec_succeeded else None,
             settings=settings,
             audit_event_id=exec_audit.id,
             approval_id=approval.id,
