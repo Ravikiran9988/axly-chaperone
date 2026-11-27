@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -15,6 +16,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adapters.base import AdapterExecutionResult
+from app.adapters.email_adapter import EmailToolAdapter
 from app.adapters.file_adapter import FileToolAdapter
 from app.adapters.mcp.client import ChaperoneMCPClient
 from app.approvals.models import ApprovalRequest
@@ -890,8 +892,111 @@ async def run_all_scenarios(ctx: BenchmarkContext) -> list[ScenarioOutcome]:
     )
     results.append(out32)
 
+    # MAL-33: Concurrent approval execution race executes strictly once (200 + 409)
+    race_seed = await ctx.client.post(
+        "/api/v1/gateway/execute",
+        headers={"X-Agent-Key": ctx.primary_agent_key, "X-Correlation-ID": "bench-race-seed-33"},
+        json={
+            "tool_name": "email_tool",
+            "action": "send",
+            "resource": "audit-team@company.com",
+            "arguments": {
+                "to": "audit-team@company.com",
+                "subject": "Race Test",
+                "body": "Must run once",
+            },
+        },
+    )
+    race_ap_id = race_seed.json()["approval_id"]
+    await ctx.client.post(
+        f"/api/v1/approvals/{race_ap_id}/approve",
+        headers=ctx.admin_headers,
+        json={"execute_now": False, "comment": "2-step race test"},
+    )
+    real_email_exec = EmailToolAdapter.execute
+    race_exec_count = 0
+
+    async def counted_email_exec(self: EmailToolAdapter, context: Any) -> AdapterExecutionResult:
+        nonlocal race_exec_count
+        race_exec_count += 1
+        return await real_email_exec(self, context)
+
+    t0 = time.perf_counter()
+    with patch.object(EmailToolAdapter, "execute", counted_email_exec):
+
+        async def _fire_race_once() -> int:
+            r = await ctx.client.post(
+                "/api/v1/gateway/execute",
+                headers={"X-Agent-Key": ctx.primary_agent_key},
+                json={
+                    "tool_name": "email_tool",
+                    "action": "send",
+                    "resource": "audit-team@company.com",
+                    "arguments": {
+                        "to": "audit-team@company.com",
+                        "subject": "Race Test",
+                        "body": "Must run once",
+                    },
+                    "approval_id": race_ap_id,
+                },
+            )
+            return r.status_code
+
+        race_statuses = await asyncio.gather(_fire_race_once(), _fire_race_once())
+    race_ms = (time.perf_counter() - t0) * 1000.0
+    race_ok = sorted(race_statuses) == [200, 409] and race_exec_count == 1
+    results.append(
+        ScenarioOutcome(
+            test_id="MAL-33",
+            classification="malicious",
+            category="concurrency_replay_race",
+            description="Concurrent approval execution race executes once (200 + 409)",
+            input_data={"approval_id": race_ap_id, "concurrency": 2},
+            expected_decision="SINGLE_EXECUTION_409",
+            expected_execution_behavior="duplicate_blocked",
+            actual_decision=f"STATUSES_{sorted(race_statuses)}_EXEC_{race_exec_count}",
+            actual_execution_behavior="duplicate_blocked" if race_ok else "double_executed",
+            verification_status=None,
+            passed=race_ok,
+            is_policy_case=False,
+            gateway_latency_ms=round(race_ms, 3),
+        )
+    )
+
+    # MAL-34: Credential key passed in MCP arguments is strictly rejected
+    t0 = time.perf_counter()
+    mcp_cred = await ctx.mcp_client.call_tool(
+        tool_name="file_tool",
+        action="read",
+        resource="documents/invoice.txt",
+        arguments={"path": "documents/invoice.txt"},
+        raw_extra_args={"agent_api_key": ctx.primary_agent_key},
+        correlation_id="bench-mcp-mal-34",
+    )
+    mcp34_ms = (time.perf_counter() - t0) * 1000.0
+    mcp34_code = str((mcp_cred.payload.get("error") or {}).get("code"))
+    results.append(
+        ScenarioOutcome(
+            test_id="MAL-34",
+            classification="malicious",
+            category="mcp_credential_smuggling",
+            description="MCP tool invocation attempting agent_api_key argument is rejected",
+            input_data={"mcp_tool": "file_tool", "extra_arg": "agent_api_key"},
+            expected_decision="INVALID_MCP_ARGUMENTS",
+            expected_execution_behavior="rejected_before_execution",
+            actual_decision=mcp34_code,
+            actual_execution_behavior="rejected_before_execution"
+            if mcp_cred.is_error
+            else "executed",
+            verification_status=None,
+            passed=mcp_cred.is_error and mcp34_code == "INVALID_MCP_ARGUMENTS",
+            is_policy_case=False,
+            gateway_latency_ms=round(mcp34_ms, 3),
+        )
+    )
+
     # =========================================================================
-    # PART 2: LEGITIMATE SCENARIOS (LEG-01 .. LEG-32)
+    # PART 2: LEGITIMATE SCENARIOS (LEG-01 .. LEG-34)
     # =========================================================================
 
     # 1. Authorized file operations (LEG-01 .. LEG-08)
@@ -1612,37 +1717,113 @@ async def run_all_scenarios(ctx: BenchmarkContext) -> list[ScenarioOutcome]:
     )
     results.append(out31)
 
-    # LEG-32: Audit integrity verification confirms 100% intact SHA-256 record_hash across benchmark
+    # LEG-32: Full-chain audit integrity check confirms intact chain from seq 1
     t0 = time.perf_counter()
     integ_resp = await ctx.client.get(
-        "/api/v1/audit-events/integrity?limit=500",
+        "/api/v1/audit-events/integrity",
         headers=ctx.admin_headers,
     )
     integ_ms = (time.perf_counter() - t0) * 1000.0
     integ_data = integ_resp.json()
+    chain_ok = (
+        integ_resp.status_code == 200
+        and integ_data.get("intact") is True
+        and integ_data.get("chain_complete") is True
+        and integ_data.get("broken_links") == []
+        and integ_data.get("sequence_gaps") == []
+        and integ_data.get("chain_verified", 0) > 0
+    )
     results.append(
         ScenarioOutcome(
             test_id="LEG-32",
             classification="legitimate",
             category="audit_integrity",
-            description=(
-                "Audit cryptographic record_hash integrity check confirms zero tampered rows"
-            ),
+            description="Full chained audit integrity check confirms zero tampering or gaps",
             input_data={"endpoint": "/api/v1/audit-events/integrity"},
             expected_decision="INTACT",
             expected_execution_behavior="audit_verified",
             actual_decision="INTACT" if integ_data.get("intact") else "TAMPERED",
-            actual_execution_behavior="audit_verified"
-            if integ_data.get("tampered") == 0
-            else "tampered",
-            verification_status="VERIFIED" if integ_data.get("intact") else "FAILED",
-            passed=integ_resp.status_code == 200
-            and integ_data.get("intact") is True
-            and integ_data.get("verified", 0) > 0,
+            actual_execution_behavior="audit_verified" if chain_ok else "tampered",
+            verification_status="VERIFIED" if chain_ok else "FAILED",
+            passed=chain_ok,
             is_policy_case=False,
             gateway_latency_ms=round(integ_ms, 3),
-            notes=f"Checked {integ_data.get('checked')} audit events",
+            notes=f"Checked {integ_data.get('checked')} chained audit events",
         )
     )
+
+    # LEG-33: Concurrent authorized file reads succeed and preserve contiguous audit chain
+    async def _conc_read(idx: int) -> tuple[int, str, str]:
+        r = await ctx.client.post(
+            "/api/v1/gateway/execute",
+            headers={
+                "X-Agent-Key": ctx.primary_agent_key,
+                "X-Correlation-ID": f"bench-conc-read-{idx}",
+            },
+            json={
+                "tool_name": "file_tool",
+                "action": "read",
+                "resource": "documents/invoice.txt",
+                "arguments": {"path": "documents/invoice.txt"},
+            },
+        )
+        b = r.json()
+        return r.status_code, str(b.get("status")), str((b.get("verification") or {}).get("status"))
+
+    t0 = time.perf_counter()
+    conc_results = await asyncio.gather(*(_conc_read(i) for i in range(4)))
+    conc_ms = (time.perf_counter() - t0) * 1000.0
+    conc_ok = all(
+        code == 200 and st == "EXECUTED" and vs == "VERIFIED" for code, st, vs in conc_results
+    )
+    results.append(
+        ScenarioOutcome(
+            test_id="LEG-33",
+            classification="legitimate",
+            category="concurrency_reliability",
+            description="Four concurrent authorized file reads succeed and verify independently",
+            input_data={"concurrency": 4, "resource": "documents/invoice.txt"},
+            expected_decision="ALLOW",
+            expected_execution_behavior="executed_and_verified",
+            actual_decision="ALLOW" if conc_ok else "FAILED",
+            actual_execution_behavior="executed_and_verified" if conc_ok else "failed",
+            verification_status="VERIFIED" if conc_ok else "FAILED",
+            passed=conc_ok,
+            is_policy_case=False,
+            is_verification_case=True,
+            verification_correct=conc_ok,
+            gateway_latency_ms=round(conc_ms, 3),
+        )
+    )
+
+    # LEG-34: Phase 2 verifier catches truncated directory listing from lying adapter
+    async def trunc_list_exec(self: FileToolAdapter, context: Any) -> AdapterExecutionResult:
+        return AdapterExecutionResult(
+            success=True,
+            summary="Truncated list",
+            output={"directory": context.resource, "entries": []},
+            metadata={"directory": context.resource, "entry_count": 0},
+        )
+
+    with patch.object(FileToolAdapter, "execute", trunc_list_exec):
+        out34, _ = await _exec_gateway(
+            ctx,
+            test_id="LEG-34",
+            classification="legitimate",
+            category="outcome_verification",
+            description="VerificationEngine detects truncated directory listing & flags FAILED",
+            payload={
+                "tool_name": "file_tool",
+                "action": "list",
+                "resource": "documents",
+                "arguments": {"path": "documents"},
+            },
+            expected_decision="ALLOW",
+            expected_behavior="verification_failed",
+            expect_http_status=200,
+            is_verification_case=True,
+            expected_verification="FAILED",
+        )
+    results.append(out34)
 
     return results

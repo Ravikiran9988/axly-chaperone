@@ -1,12 +1,15 @@
-"""Reproducible benchmark runner for security metrics, latency percentiles, and reports."""
+"""Reproducible benchmark runner with production auth/rate-limit defaults and reports."""
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
 import math
 import os
 import platform
+import shutil
+import subprocess
 import tempfile
 import time
 from dataclasses import asdict
@@ -28,6 +31,23 @@ from app.core.database import Base, build_engine, build_session_factory
 from app.execution.dispatcher import ExecutionDispatcher
 from app.main import create_app
 from app.security.policy_engine import PolicyEngine
+
+
+def _resolve_git_commit_sha() -> str:
+    git_bin = shutil.which("git")
+    if not git_bin:
+        return "unknown"
+    try:
+        proc = subprocess.run(  # noqa: S603
+            [git_bin, "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        )
+        return proc.stdout.strip() or "unknown"
+    except Exception:
+        return "unknown"
 
 
 def _percentile(values: list[float], pct: float) -> float:
@@ -54,7 +74,6 @@ async def _seed_benchmark_entities(
     client: AsyncClient,
     admin_headers: dict[str, str],
 ) -> tuple[str, str, str, str, str, str]:
-    # 1. Primary agent, secondary agent, and disabled agent
     ag1 = (
         await client.post(
             "/api/v1/agents",
@@ -82,7 +101,6 @@ async def _seed_benchmark_entities(
         json={"status": "disabled"},
     )
 
-    # 2. Register tools
     for tool in (
         {
             "name": "file_tool",
@@ -116,9 +134,7 @@ async def _seed_benchmark_entities(
         resp = await client.post("/api/v1/tools", headers=admin_headers, json=tool)
         assert resp.status_code == 201, resp.text
 
-    # 3. Deterministic policies for benchmark suite
     policies = [
-        # Primary agent allowed file operations on documents/*
         {
             "name": "bench-primary-allow-docs",
             "agent_id": ag1["id"],
@@ -128,7 +144,6 @@ async def _seed_benchmark_entities(
             "decision": "allow",
             "priority": 100,
         },
-        # Primary agent list documents directory
         {
             "name": "bench-primary-allow-list-docs",
             "agent_id": ag1["id"],
@@ -138,7 +153,6 @@ async def _seed_benchmark_entities(
             "decision": "allow",
             "priority": 100,
         },
-        # Precedence test: tied priority 100 REQUIRE_APPROVAL on documents/sensitive/*
         {
             "name": "bench-sensitive-tie-approval",
             "agent_id": ag1["id"],
@@ -148,7 +162,6 @@ async def _seed_benchmark_entities(
             "decision": "require_approval",
             "priority": 100,
         },
-        # Precedence test: lower REQUIRE_APPROVAL overridden by higher ALLOW on documents/public/*
         {
             "name": "bench-public-higher-allow",
             "agent_id": ag1["id"],
@@ -158,7 +171,6 @@ async def _seed_benchmark_entities(
             "decision": "allow",
             "priority": 250,
         },
-        # Explicit global DENY on private/* (highest security guarantee)
         {
             "name": "bench-global-deny-private",
             "agent_id": None,
@@ -168,7 +180,6 @@ async def _seed_benchmark_entities(
             "decision": "deny",
             "priority": 500,
         },
-        # Secondary agent allowed only project_notes.txt
         {
             "name": "bench-secondary-allow-notes",
             "agent_id": ag2["id"],
@@ -178,7 +189,6 @@ async def _seed_benchmark_entities(
             "decision": "allow",
             "priority": 100,
         },
-        # Email policies: drafts & reads allowed internally, sends require approval, attacker denied
         {
             "name": "bench-primary-allow-drafts",
             "agent_id": ag1["id"],
@@ -215,7 +225,6 @@ async def _seed_benchmark_entities(
             "decision": "deny",
             "priority": 500,
         },
-        # Database policies on demo_invoices & demo_tasks only
         {
             "name": "bench-primary-allow-demo-invoices",
             "agent_id": ag1["id"],
@@ -234,7 +243,6 @@ async def _seed_benchmark_entities(
             "decision": "allow",
             "priority": 100,
         },
-        # Evaluation-only tool policy
         {
             "name": "bench-primary-allow-analytics",
             "agent_id": ag1["id"],
@@ -244,7 +252,6 @@ async def _seed_benchmark_entities(
             "decision": "allow",
             "priority": 100,
         },
-        # Disabled agent still has a policy — disabled status gate MUST override
         {
             "name": "bench-disabled-agent-policy",
             "agent_id": ag3["id"],
@@ -273,8 +280,8 @@ def _compute_metrics(outcomes: list[ScenarioOutcome]) -> dict[str, Any]:
     malicious = [o for o in outcomes if o.classification == "malicious"]
     legitimate = [o for o in outcomes if o.classification == "legitimate"]
 
-    # Unauthorized action prevented = malicious scenario passed & was not executed
     prevented_malicious = sum(1 for o in malicious if o.passed)
+    false_negatives = len(malicious) - prevented_malicious
     legit_succeeded = sum(1 for o in legitimate if o.passed)
     false_blocks = sum(
         1
@@ -308,7 +315,11 @@ def _compute_metrics(outcomes: list[ScenarioOutcome]) -> dict[str, Any]:
         "counts": {
             "total_scenarios": total,
             "malicious_scenarios": len(malicious),
+            "malicious_blocked": prevented_malicious,
+            "false_negative_count": false_negatives,
             "legitimate_scenarios": len(legitimate),
+            "legitimate_allowed": legit_succeeded,
+            "false_positive_count": false_blocks,
             "passed_scenarios": passed,
             "failed_scenarios": failed,
             "skipped_scenarios": 0,
@@ -359,14 +370,22 @@ def _render_markdown_report(report: dict[str, Any]) -> str:
     lines = [
         "# AXLY Chaperone — Security Benchmark Report",
         "",
-        f"- **Generated (UTC):** `{report['timestamp_utc']}`",
+        f"- **Generated (UTC):** `{report['timestamp_utc']}` | **Commit:** `{env['commit_sha']}`",
         (
             f"- **Platform:** `{env['platform']}` | **Python:** `{env['python_version']}`"
             f" | **CPU Cores:** `{env['cpu_count']}`"
         ),
         (
-            f"- **Database Backend:** `{env['database_backend']}`"
-            " | **Rate Limiter:** `disabled for benchmark throughput`"
+            f"- **Database Backend:** `{env['database_backend']}` | "
+            f"**PBKDF2 Iterations:** `{env['pbkdf2_iterations']}` | "
+            f"**Rate Limiter:** `enabled={env['rate_limit_enabled']} "
+            f"({env['rate_limit_requests']}/{env['rate_limit_window_seconds']}s)`"
+        ),
+        "",
+        (
+            "> **Evaluation Scope:** Metrics apply strictly to the tested deterministic and "
+            "adversarial scenarios listed below. Chaperone enforces capability-level authorization "
+            "rather than universal NLP-based semantic prompt-injection immunity."
         ),
         "",
         "## Summary Counts",
@@ -377,9 +396,12 @@ def _render_markdown_report(report: dict[str, Any]) -> str:
             f"| Total Scenarios | **{c['total_scenarios']}** "
             f"({c['malicious_scenarios']} malicious / {c['legitimate_scenarios']} legitimate) |"
         ),
-        f"| Passed Scenarios | **{c['passed_scenarios']}** |",
-        f"| Failed Scenarios | **{c['failed_scenarios']}** |",
-        f"| Skipped Scenarios | **{c['skipped_scenarios']}** |",
+        f"| Malicious Requests Blocked | **{c['malicious_blocked']}** |",
+        f"| Legitimate Tasks Allowed & Succeeded | **{c['legitimate_allowed']}** |",
+        f"| False Positives (False Blocks) | **{c['false_positive_count']}** |",
+        f"| False Negatives | **{c['false_negative_count']}** |",
+        f"| Passed / Failed / Skipped | **{c['passed_scenarios']} / {c['failed_scenarios']} / "
+        f"{c['skipped_scenarios']}** |",
         "",
         "## Security & Accuracy Metrics (Measured)",
         "",
@@ -458,14 +480,36 @@ def _render_markdown_report(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-async def run_security_benchmark(*, write_reports: bool = True) -> dict[str, Any]:
-    """Execute the full 64-scenario benchmark in an isolated temporary environment."""
+async def run_security_benchmark(
+    *,
+    write_reports: bool = True,
+    write_timestamped: bool = True,
+    database_url: str | None = None,
+    pbkdf2_iterations: int = 200_000,
+    rate_limit_enabled: bool = True,
+    rate_limit_requests: int = 120,
+    rate_limit_window_seconds: int = 60,
+) -> dict[str, Any]:
+    """Execute the full benchmark using production-equivalent auth and rate-limit settings."""
     admin_key = "axly_adm_benchmark_runner_key_0123456789abcdef"
     admin_headers = {"X-Admin-Key": admin_key}
+
+    explicit_db_url = (
+        database_url
+        or os.environ.get("CHAPERONE_BENCHMARK_DATABASE_URL")
+        or os.environ.get("CHAPERONE_TEST_DATABASE_URL")
+    )
 
     with tempfile.TemporaryDirectory(prefix="chaperone_bench_") as tmp_dir:
         tmp_path = Path(tmp_dir)
         db_file = tmp_path / "benchmark.db"
+        resolved_db_url = explicit_db_url or f"sqlite+aiosqlite:///{db_file.as_posix()}"
+        is_pg = resolved_db_url.startswith("postgresql")
+        db_label = (
+            "postgresql+asyncpg (isolated benchmark database)"
+            if is_pg
+            else "sqlite+aiosqlite (isolated temp instance; PostgreSQL benchmark URL not set)"
+        )
         sandbox_root = ensure_demo_sandbox(tmp_path / "sandbox")
         outside_dir = tmp_path / "outside"
         outside_dir.mkdir(parents=True, exist_ok=True)
@@ -473,15 +517,18 @@ async def run_security_benchmark(*, write_reports: bool = True) -> dict[str, Any
         settings = Settings(
             env="test",
             log_json=False,
-            database_url=f"sqlite+aiosqlite:///{db_file.as_posix()}",
+            database_url=resolved_db_url,
             admin_api_key=SecretStr(admin_key),
             api_key_pepper=SecretStr("benchmark-pepper-secret"),
-            api_key_hash_iterations=10_000,
-            rate_limit_enabled=False,
+            api_key_hash_iterations=pbkdf2_iterations,
+            rate_limit_enabled=rate_limit_enabled,
+            rate_limit_requests=rate_limit_requests,
+            rate_limit_window_seconds=rate_limit_window_seconds,
             sandbox_dir=str(sandbox_root),
         )
         engine: AsyncEngine = build_engine(settings.database_url)
         async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
             await conn.run_sync(Base.metadata.create_all)
 
         latency_tracker: dict[str, list[float]] = {"policy_ms": [], "tool_ms": []}
@@ -547,45 +594,95 @@ async def run_security_benchmark(*, write_reports: bool = True) -> dict[str, Any
                                 )
                                 outcomes = await run_all_scenarios(ctx)
         finally:
+            if is_pg:
+                async with engine.begin() as conn:
+                    await conn.run_sync(Base.metadata.drop_all)
             await engine.dispose()
 
+    now_utc = datetime.now(UTC)
     metrics = _compute_metrics(outcomes)
+    commit_sha = await asyncio.to_thread(_resolve_git_commit_sha)
     report: dict[str, Any] = {
         "benchmark_name": "AXLY Chaperone Security & Governance Benchmark",
-        "timestamp_utc": datetime.now(UTC).isoformat(),
+        "timestamp_utc": now_utc.isoformat(),
         "environment": {
             "platform": platform.platform(),
             "python_version": platform.python_version(),
             "cpu_count": os.cpu_count() or 1,
             "processor": platform.processor() or "unknown",
-            "database_backend": "sqlite+aiosqlite (isolated benchmark instance)",
+            "database_backend": db_label,
+            "pbkdf2_iterations": pbkdf2_iterations,
+            "rate_limit_enabled": rate_limit_enabled,
+            "rate_limit_requests": rate_limit_requests,
+            "rate_limit_window_seconds": rate_limit_window_seconds,
+            "commit_sha": commit_sha,
         },
         "metrics": metrics,
         "scenarios": [asdict(o) for o in outcomes],
     }
 
     if write_reports:
-        await asyncio.to_thread(_write_report_files, report)
+        stamp = now_utc.strftime("%Y%m%dT%H%M%SZ")
+        await asyncio.to_thread(
+            _write_report_files,
+            report,
+            stamp=stamp if write_timestamped else None,
+        )
 
     return report
 
 
-def _write_report_files(report: dict[str, Any]) -> None:
-    """Persist machine-readable JSON and human-readable Markdown benchmark reports."""
+def _write_report_files(report: dict[str, Any], *, stamp: str | None = None) -> None:
+    """Persist timestamped and latest machine-readable JSON + Markdown benchmark reports."""
     repo_root = Path(__file__).resolve().parents[3]
     out_dir = repo_root / "benchmarks" / "results"
     out_dir.mkdir(parents=True, exist_ok=True)
-    json_path = out_dir / "latest_benchmark.json"
-    md_path = out_dir / "latest_benchmark.md"
-    json_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
-    md_path.write_text(_render_markdown_report(report), encoding="utf-8")
+    rendered_json = json.dumps(report, indent=2)
+    rendered_md = _render_markdown_report(report)
+    (out_dir / "latest_benchmark.json").write_text(rendered_json, encoding="utf-8")
+    (out_dir / "latest_benchmark.md").write_text(rendered_md, encoding="utf-8")
+    if stamp:
+        (out_dir / f"benchmark_{stamp}.json").write_text(rendered_json, encoding="utf-8")
+        (out_dir / f"benchmark_{stamp}.md").write_text(rendered_md, encoding="utf-8")
 
 
 def main() -> None:
-    """CLI entrypoint for running the 64-scenario AXLY Chaperone security benchmark."""
-    report = asyncio.run(run_security_benchmark(write_reports=True))
+    """CLI entrypoint for running the AXLY Chaperone security benchmark."""
+    parser = argparse.ArgumentParser(description="Run AXLY Chaperone security benchmark")
+    parser.add_argument(
+        "--database-url",
+        default=None,
+        help="Optional async SQLAlchemy URL (defaults to CHAPERONE_BENCHMARK_DATABASE_URL).",
+    )
+    parser.add_argument(
+        "--pbkdf2-iterations",
+        type=int,
+        default=200_000,
+        help="PBKDF2-HMAC-SHA256 iterations (default 200000 production setting).",
+    )
+    parser.add_argument(
+        "--no-rate-limit",
+        action="store_true",
+        help="Disable rate limiting (enabled by default).",
+    )
+    parser.add_argument(
+        "--no-write",
+        action="store_true",
+        help="Run benchmark without overwriting benchmarks/results artifacts.",
+    )
+    args = parser.parse_args()
+
+    report = asyncio.run(
+        run_security_benchmark(
+            write_reports=not args.no_write,
+            database_url=args.database_url,
+            pbkdf2_iterations=args.pbkdf2_iterations,
+            rate_limit_enabled=not args.no_rate_limit,
+        )
+    )
     summary = {
         "timestamp_utc": report["timestamp_utc"],
+        "environment": report["environment"],
         "counts": report["metrics"]["counts"],
         "rates": report["metrics"]["rates"],
         "latency": report["metrics"]["latency"],

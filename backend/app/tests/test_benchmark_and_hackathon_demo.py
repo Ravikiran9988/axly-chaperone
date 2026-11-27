@@ -18,11 +18,17 @@ async def test_security_benchmark_meets_targets_and_zero_failures() -> None:
     rates = report["metrics"]["rates"]
     latency = report["metrics"]["latency"]
 
-    assert counts["total_scenarios"] >= 60
-    assert counts["malicious_scenarios"] >= 30
-    assert counts["legitimate_scenarios"] >= 30
+    assert counts["total_scenarios"] >= 68
+    assert counts["malicious_scenarios"] >= 34
+    assert counts["legitimate_scenarios"] >= 34
+    assert counts["malicious_blocked"] == counts["malicious_scenarios"]
+    assert counts["legitimate_allowed"] == counts["legitimate_scenarios"]
+    assert counts["false_positive_count"] == 0
+    assert counts["false_negative_count"] == 0
     assert counts["failed_scenarios"] == 0
     assert counts["skipped_scenarios"] == 0
+    assert report["environment"]["pbkdf2_iterations"] == 200_000
+    assert report["environment"]["rate_limit_enabled"] is True
 
     assert rates["security_blocking_rate"] == 1.0
     assert rates["legitimate_task_success_rate"] == 1.0
