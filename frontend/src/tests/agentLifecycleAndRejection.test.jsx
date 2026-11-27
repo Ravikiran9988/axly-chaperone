@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { installMockApiAdapter, paginated, renderApp } from './testUtils';
+import { installMockApiAdapter, paginated, renderApp, signInAsAdmin } from './testUtils';
 
 describe('Agent lifecycle details and approval rejection flows', () => {
   it('views agent details, disables an agent with confirmation, and rejects a pending approval', async () => {
@@ -48,13 +48,11 @@ describe('Agent lifecycle details and approval rejection flows', () => {
         pendingApproval.reviewer_comment = body.comment;
         return { data: { approval: pendingApproval, execution_status: 'REJECTED' } };
       }
-      return { data: paginated([]) };
+      return undefined;
     });
 
     renderApp({ route: '/login' });
-    await user.type(screen.getByLabelText(/Admin API Key/i), 'axly_adm_valid');
-    await user.click(screen.getByRole('button', { name: /Authenticate Session/i }));
-    await screen.findByRole('heading', { name: 'Overview' });
+    await signInAsAdmin(user);
 
     const mainNav = screen.getByRole('navigation', { name: 'Main navigation' });
     await user.click(within(mainNav).getByRole('link', { name: 'Agents' }));

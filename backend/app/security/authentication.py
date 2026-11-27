@@ -139,8 +139,7 @@ async def authenticate_admin(
     if x_admin_key is not None:
         if configured_key is None:
             raise AdminBootstrapError(
-                "Administrative API key is not configured. "
-                "Set CHAPERONE_ADMIN_API_KEY before use."
+                "Administrative API key is not configured. Set CHAPERONE_ADMIN_API_KEY before use."
             )
         if not settings.allow_admin_api_key_header:
             raise AuthorizationError(

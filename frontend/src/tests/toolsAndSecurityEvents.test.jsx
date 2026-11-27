@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { installMockApiAdapter, paginated, renderApp } from './testUtils';
+import { installMockApiAdapter, paginated, renderApp, signInAsAdmin } from './testUtils';
 
 describe('Tools execution distinction, Security Events, and Settings health', () => {
   it('distinguishes executable adapter tools from evaluation-only tools and renders security events and settings', async () => {
@@ -51,13 +51,11 @@ describe('Tools execution distinction, Security Events, and Settings health', ()
       if (url === '/ready') return { data: { status: 'ready', service: 'AXLY Chaperone', database: 'connected' } };
       if (url === '/api/v1/tools') return { data: paginated(tools) };
       if (url === '/api/v1/audit-events') return { data: paginated(auditEvents) };
-      return { data: paginated([]) };
+      return undefined;
     });
 
     renderApp({ route: '/login' });
-    await user.type(screen.getByLabelText(/Admin API Key/i), 'axly_adm_valid');
-    await user.click(screen.getByRole('button', { name: /Authenticate Session/i }));
-    await screen.findByRole('heading', { name: 'Overview' });
+    await signInAsAdmin(user);
 
     const mainNav = screen.getByRole('navigation', { name: 'Main navigation' });
     await user.click(within(mainNav).getByRole('link', { name: 'Tools' }));

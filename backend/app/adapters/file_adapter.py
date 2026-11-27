@@ -194,7 +194,7 @@ def _win32_open_nofollow(
     file_share_all = 0x00000001 | 0x00000002 | 0x00000004
     invalid_handle = ctypes.c_void_p(-1).value
 
-    flags = file_flag_reparse | (file_flag_backup if directory else file_flag_backup)
+    flags = file_flag_reparse | (file_flag_backup if directory else 0)
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel32.CreateFileW.restype = ctypes.c_void_p
     handle = kernel32.CreateFileW(
@@ -230,7 +230,9 @@ def _win32_close(handle: int) -> None:
     ctypes.WinDLL("kernel32", use_last_error=True).CloseHandle(ctypes.c_void_p(handle))
 
 
-def _win32_verify_segment_chain(sandbox_root: Path, segments: list[str], *, create_parents: bool) -> Path:
+def _win32_verify_segment_chain(
+    sandbox_root: Path, segments: list[str], *, create_parents: bool
+) -> Path:
     file_attr_dir = 0x0010
     if _is_reparse_or_link(sandbox_root):
         raise AdapterSecurityError("Sandbox root cannot be a symbolic link or junction.")
@@ -252,7 +254,9 @@ def _win32_verify_segment_chain(sandbox_root: Path, segments: list[str], *, crea
     for idx, seg in enumerate(segments[:-1]):
         current = current / seg
         if _is_reparse_or_link(current):
-            raise AdapterSecurityError("Symbolic link or junction traversal prohibited inside sandbox.")
+            raise AdapterSecurityError(
+                "Symbolic link or junction traversal prohibited inside sandbox."
+            )
         if create_parents and not current.exists():
             current.mkdir(parents=False, exist_ok=True)
         seg_handle = _win32_open_nofollow(

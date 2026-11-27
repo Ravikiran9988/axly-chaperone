@@ -56,7 +56,9 @@ def main() -> None:
         "create-admin-user",
         help="Create an individual administrator account in the database.",
     )
-    user_parser.add_argument("--username", required=True, help="Unique admin username (2-64 chars).")
+    user_parser.add_argument(
+        "--username", required=True, help="Unique admin username (2-64 chars)."
+    )
     user_parser.add_argument(
         "--role",
         choices=[r.value for r in AdminRole],

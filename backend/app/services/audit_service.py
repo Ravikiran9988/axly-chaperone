@@ -360,7 +360,11 @@ class AuditService:
 
         offset = (page - 1) * page_size
         order_cols = (
-            (AuditEvent.created_at.asc(), AuditEvent.chain_seq.asc().nulls_last(), AuditEvent.id.asc())
+            (
+                AuditEvent.created_at.asc(),
+                AuditEvent.chain_seq.asc().nulls_last(),
+                AuditEvent.id.asc(),
+            )
             if order == "asc"
             else (
                 AuditEvent.created_at.desc(),
@@ -368,7 +372,9 @@ class AuditService:
                 AuditEvent.id.asc(),
             )
         )
-        stmt = select(AuditEvent).where(*filters).order_by(*order_cols).offset(offset).limit(page_size)
+        stmt = (
+            select(AuditEvent).where(*filters).order_by(*order_cols).offset(offset).limit(page_size)
+        )
         items = list((await session.execute(stmt)).scalars().all())
         return items, total
 

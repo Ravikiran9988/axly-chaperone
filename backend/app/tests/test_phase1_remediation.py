@@ -337,7 +337,9 @@ async def test_phase1_chained_audit_integrity_concurrent_deletion_and_reordering
         assert res_ok["head_seq"] == 10
 
         events = (
-            (await s.execute(select(AuditEvent).order_by(AuditEvent.chain_seq.asc()))).scalars().all()
+            (await s.execute(select(AuditEvent).order_by(AuditEvent.chain_seq.asc())))
+            .scalars()
+            .all()
         )
         assert [e.chain_seq for e in events] == list(range(1, 11))
 
@@ -356,7 +358,9 @@ async def test_phase1_chained_audit_integrity_concurrent_deletion_and_reordering
 
         # Restore metadata cleanly before testing middle deletion
         await s.execute(
-            update(AuditEvent).where(AuditEvent.id == target_ev.id).values(policy_metadata=orig_meta)
+            update(AuditEvent)
+            .where(AuditEvent.id == target_ev.id)
+            .values(policy_metadata=orig_meta)
         )
         await s.commit()
         assert (await svc.verify_integrity(s))["intact"] is True
@@ -429,9 +433,7 @@ def test_phase1_toctou_filesystem_no_follow_and_atomic_write(
     # 1. Atomic write succeeds and leaves zero temp files behind
     digest = write_sandbox_file_atomic(sandbox, "documents/clean.txt", b"safe-payload")
     assert len(digest) == 64
-    assert not any(
-        p.name.startswith(".chaperone_tmp_") for p in (sandbox / "documents").iterdir()
-    )
+    assert not any(p.name.startswith(".chaperone_tmp_") for p in (sandbox / "documents").iterdir())
 
     # 2. Handle-verified read & list succeed on legitimate files
     data, read_digest = read_sandbox_file_verified(

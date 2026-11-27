@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { installMockApiAdapter, paginated, renderApp } from './testUtils';
+import { installMockApiAdapter, paginated, renderApp, signInAsAdmin } from './testUtils';
 
 describe('Approval workflow', () => {
   it('inspects redacted payload, requires confirmation, approves & executes, and displays verification', async () => {
@@ -104,13 +104,11 @@ describe('Approval workflow', () => {
           ]),
         };
       }
-      return { data: paginated([]) };
+      return undefined;
     });
 
     renderApp({ route: '/login' });
-    await user.type(screen.getByLabelText(/Admin API Key/i), 'axly_adm_valid');
-    await user.click(screen.getByRole('button', { name: /Authenticate Session/i }));
-    await screen.findByRole('heading', { name: 'Overview' });
+    await signInAsAdmin(user);
 
     const mainNav = screen.getByRole('navigation', { name: 'Main navigation' });
     await user.click(within(mainNav).getByRole('link', { name: /Approvals/i }));

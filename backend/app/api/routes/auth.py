@@ -276,8 +276,10 @@ async def list_admin_users(
 ) -> list[AdminUserResponse]:
     """List administrator accounts without exposing password hashes."""
     users = (
-        await session.execute(select(AdminUser).order_by(AdminUser.username.asc()))
-    ).scalars().all()
+        (await session.execute(select(AdminUser).order_by(AdminUser.username.asc())))
+        .scalars()
+        .all()
+    )
     return [AdminUserResponse.model_validate(u) for u in users]
 
 
@@ -293,7 +295,9 @@ async def update_admin_user(
     session: AsyncSession = Depends(get_db_session),
 ) -> AdminUserResponse:
     """Enable/disable an administrator account or adjust its RBAC role."""
-    user = (await session.execute(select(AdminUser).where(AdminUser.id == user_id))).scalar_one_or_none()
+    user = (
+        await session.execute(select(AdminUser).where(AdminUser.id == user_id))
+    ).scalar_one_or_none()
     if user is None:
         raise ResourceNotFoundError(f"Admin user '{user_id}' not found.")
     if payload.status is not None:

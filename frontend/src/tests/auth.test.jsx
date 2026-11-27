@@ -1,23 +1,50 @@
 import { describe, expect, it } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { installMockApiAdapter, paginated, renderApp } from './testUtils';
-import { setMemoryCredentials } from '../services/api';
+import { installMockApiAdapter, paginated, renderApp, signInAsAdmin } from './testUtils';
 
-describe('Authentication and API error handling', () => {
-  it('validates login, verifies admin key against backend, and signs out cleanly', async () => {
+describe('Authentication, cookie sessions, CSRF, and error handling', () => {
+  it('authenticates via session cookie, attaches CSRF on state changes, never sends X-Admin-Actor, and signs out', async () => {
     const user = userEvent.setup();
-    const calls = installMockApiAdapter(({ method, url, headers }) => {
+    let loggedIn = false;
+
+    const calls = installMockApiAdapter(({ method, url, body }) => {
       if (url === '/health') return { data: { status: 'ok', service: 'AXLY Chaperone', version: '0.1.0' } };
       if (url === '/ready') return { data: { status: 'ready', service: 'AXLY Chaperone', database: 'connected' } };
-      if (method === 'GET' && url === '/api/v1/agents') {
-        if (headers['X-Admin-Key'] === 'axly_adm_valid_secret_0123456789abcdef') {
-          return { data: paginated([]) };
+      if (url === '/api/v1/auth/session') {
+        return loggedIn
+          ? {
+              data: {
+                authenticated: true,
+                auth_scheme: 'session_cookie',
+                reviewer_id: 'secops-lead',
+                role: 'super_admin',
+                csrf_token: 'csrf-abc-123',
+              },
+            }
+          : { status: 401, data: { error: { code: 'ADMIN_AUTH_REQUIRED', message: 'Auth required' } } };
+      }
+      if (url === '/api/v1/auth/login' && method === 'POST') {
+        if (body?.username === 'secops-lead' && body?.password === 'ValidAdminPassword!123') {
+          loggedIn = true;
+          return {
+            data: {
+              authenticated: true,
+              auth_scheme: 'session_cookie',
+              reviewer_id: 'secops-lead',
+              role: 'super_admin',
+              csrf_token: 'csrf-abc-123',
+            },
+          };
         }
         return {
           status: 401,
-          data: { error: { code: 'INVALID_ADMIN_CREDENTIALS', message: 'Invalid administrative credentials.' } },
+          data: { error: { code: 'INVALID_ADMIN_CREDENTIALS', message: 'Invalid administrator username or password.' } },
         };
+      }
+      if (url === '/api/v1/auth/logout' && method === 'POST') {
+        loggedIn = false;
+        return { data: { logged_out: true } };
       }
       if (url.startsWith('/api/v1/')) return { data: paginated([]) };
       return { status: 404, data: {} };
@@ -25,26 +52,44 @@ describe('Authentication and API error handling', () => {
 
     renderApp({ route: '/login' });
 
-    const keyInput = screen.getByLabelText(/Admin API Key/i);
-    await user.type(keyInput, 'wrong-key');
-    await user.click(screen.getByRole('button', { name: /Authenticate Session/i }));
+    await user.type(await screen.findByLabelText(/Administrator Username/i), 'secops-lead');
+    await user.type(screen.getByLabelText(/^Password$/i), 'wrong-password');
+    await user.click(screen.getByRole('button', { name: /Sign In with Session Cookie/i }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/Invalid administrative credentials/i);
-    expect(window.localStorage.getItem('X-Admin-Key')).toBeNull();
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Invalid administrator username or password/i);
 
-    await user.clear(keyInput);
-    await user.type(keyInput, 'axly_adm_valid_secret_0123456789abcdef');
-    await user.click(screen.getByRole('button', { name: /Authenticate Session/i }));
+    await user.clear(screen.getByLabelText(/^Password$/i));
+    await user.type(screen.getByLabelText(/^Password$/i), 'ValidAdminPassword!123');
+    await user.click(screen.getByRole('button', { name: /Sign In with Session Cookie/i }));
 
     expect(await screen.findByRole('heading', { name: 'Overview' })).toBeInTheDocument();
-    expect(calls.some((c) => c.headers['X-Admin-Key'] === 'axly_adm_valid_secret_0123456789abcdef')).toBe(true);
-    expect(window.localStorage.getItem('axly_adm_valid_secret_0123456789abcdef')).toBeNull();
+    expect(window.localStorage.length).toBe(0);
+    expect(calls.every((c) => !c.headers['X-Admin-Actor'] && !c.headers['X-Admin-Key'])).toBe(true);
 
-    // Sign out
-    await user.click(screen.getByRole('button', { name: /admin/i }));
+    // Sign out must send X-CSRF-Token automatically
+    await user.click(screen.getByRole('button', { name: /secops-lead/i }));
     await user.click(screen.getByRole('button', { name: /Sign Out/i }));
 
     expect(await screen.findByRole('heading', { name: /Administrator Sign In/i })).toBeInTheDocument();
+    const logoutCall = calls.find((c) => c.url === '/api/v1/auth/logout');
+    expect(logoutCall?.headers['X-CSRF-Token']).toBe('csrf-abc-123');
+  });
+
+  it('rejects agent API keys entered into bootstrap admin key login immediately', async () => {
+    const user = userEvent.setup();
+    const calls = installMockApiAdapter(({ url }) => {
+      if (url === '/health') return { data: { status: 'ok', service: 'AXLY Chaperone', version: '0.1.0' } };
+      if (url === '/ready') return { data: { status: 'ready', service: 'AXLY Chaperone', database: 'connected' } };
+      return undefined;
+    });
+
+    renderApp({ route: '/login' });
+    await user.click(screen.getByRole('tab', { name: /Bootstrap Key/i }));
+    await user.type(await screen.findByLabelText(/Bootstrap Admin Key/i), 'axly_ag_12345678_secret');
+    await user.click(screen.getByRole('button', { name: /Authenticate Session/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Agent API keys/i);
+    expect(calls.some((c) => c.url === '/api/v1/auth/login')).toBe(false);
   });
 
   it('handles expired/rejected sessions (401) from protected API responses', async () => {
@@ -58,18 +103,16 @@ describe('Authentication and API error handling', () => {
         if (rejectRequests) {
           return {
             status: 401,
-            data: { error: { code: 'INVALID_ADMIN_CREDENTIALS', message: 'Key rotated' } },
+            data: { error: { code: 'SESSION_EXPIRED', message: 'Administrative session has expired.' } },
           };
         }
         return { data: paginated([]) };
       }
-      return { data: paginated([]) };
+      return undefined;
     });
 
     renderApp({ route: '/login' });
-    await user.type(screen.getByLabelText(/Admin API Key/i), 'axly_adm_valid_key');
-    await user.click(screen.getByRole('button', { name: /Authenticate Session/i }));
-    await screen.findByRole('heading', { name: 'Overview' });
+    await signInAsAdmin(user);
 
     rejectRequests = true;
     await user.click(screen.getByRole('link', { name: 'Agents' }));
@@ -77,7 +120,7 @@ describe('Authentication and API error handling', () => {
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /Administrator Sign In/i })).toBeInTheDocument();
     });
-    expect(screen.getByRole('status')).toHaveTextContent(/session expired or credentials were rejected/i);
+    expect(screen.getByRole('status')).toHaveTextContent(/session expired or was revoked/i);
   });
 
   it('displays structured API error states with retry when backend fails with 500', async () => {
@@ -96,16 +139,12 @@ describe('Authentication and API error handling', () => {
         }
         return { data: paginated([]) };
       }
-      return { data: paginated([]) };
+      return undefined;
     });
 
-    setMemoryCredentials({ adminKey: 'axly_adm_test' });
     renderApp({ route: '/login' });
-    await user.type(screen.getByLabelText(/Admin API Key/i), 'axly_adm_test');
-    // Force pass login before failing agents
     failAgents = false;
-    await user.click(screen.getByRole('button', { name: /Authenticate Session/i }));
-    await screen.findByRole('heading', { name: 'Overview' });
+    await signInAsAdmin(user);
 
     failAgents = true;
     await user.click(screen.getByRole('link', { name: 'Agents' }));

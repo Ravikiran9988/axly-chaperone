@@ -39,8 +39,13 @@ def upgrade() -> None:
             server_default=sa.text("CURRENT_TIMESTAMP"),
             nullable=False,
         ),
-        sa.CheckConstraint("role IN ('super_admin', 'approver', 'viewer')", name="ck_admin_users_valid_admin_user_role"),
-        sa.CheckConstraint("status IN ('active', 'disabled')", name="ck_admin_users_valid_admin_user_status"),
+        sa.CheckConstraint(
+            "role IN ('super_admin', 'approver', 'viewer')",
+            name="ck_admin_users_valid_admin_user_role",
+        ),
+        sa.CheckConstraint(
+            "status IN ('active', 'disabled')", name="ck_admin_users_valid_admin_user_status"
+        ),
         sa.PrimaryKeyConstraint("id", name="pk_admin_users"),
     )
     op.create_index("ix_admin_users_username", "admin_users", ["username"], unique=True)

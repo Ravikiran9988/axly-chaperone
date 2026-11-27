@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { installMockApiAdapter, paginated, renderApp } from './testUtils';
+import { installMockApiAdapter, paginated, renderApp, signInAsAdmin } from './testUtils';
 
 describe('Policy creation and broad-permission warnings', () => {
   it('validates policy scope, warns on broad ALLOW rules, and creates policy via API', async () => {
@@ -37,13 +37,11 @@ describe('Policy creation and broad-permission warnings', () => {
         policies.push(created);
         return { status: 201, data: created };
       }
-      return { data: paginated([]) };
+      return undefined;
     });
 
     renderApp({ route: '/login' });
-    await user.type(screen.getByLabelText(/Admin API Key/i), 'axly_adm_valid');
-    await user.click(screen.getByRole('button', { name: /Authenticate Session/i }));
-    await screen.findByRole('heading', { name: 'Overview' });
+    await signInAsAdmin(user);
 
     await user.click(screen.getByRole('link', { name: 'Policies' }));
     const createButtons = await screen.findAllByRole('button', { name: /Create Policy/i });

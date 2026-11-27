@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { installMockApiAdapter, paginated, renderApp } from './testUtils';
+import { installMockApiAdapter, paginated, renderApp, signInAsAdmin } from './testUtils';
 
 describe('Audit logs and correlation execution timeline', () => {
   it('renders audit log entries and opens real chronological timeline without inventing stages', async () => {
@@ -62,13 +62,11 @@ describe('Audit logs and correlation execution timeline', () => {
         }
         return { data: paginated(events) };
       }
-      return { data: paginated([]) };
+      return undefined;
     });
 
     renderApp({ route: '/login' });
-    await user.type(screen.getByLabelText(/Admin API Key/i), 'axly_adm_valid');
-    await user.click(screen.getByRole('button', { name: /Authenticate Session/i }));
-    await screen.findByRole('heading', { name: 'Overview' });
+    await signInAsAdmin(user);
 
     await user.click(screen.getByRole('link', { name: 'Audit Logs' }));
     const cidButtons = await screen.findAllByRole('button', { name: /demo-fin/i });

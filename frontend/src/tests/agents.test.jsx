@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { installMockApiAdapter, paginated, renderApp } from './testUtils';
+import { installMockApiAdapter, paginated, renderApp, signInAsAdmin } from './testUtils';
 
 describe('Agent registration and one-time key security', () => {
   it('registers an agent, reveals API key once with warning, copies it, and never stores in localStorage', async () => {
@@ -30,13 +30,11 @@ describe('Agent registration and one-time key security', () => {
           data: { ...created, api_key: 'axly_ag_1234567890abcdef_supersecretkeyvalue123456' },
         };
       }
-      return { data: paginated([]) };
+      return undefined;
     });
 
     renderApp({ route: '/login' });
-    await user.type(screen.getByLabelText(/Admin API Key/i), 'axly_adm_valid');
-    await user.click(screen.getByRole('button', { name: /Authenticate Session/i }));
-    await screen.findByRole('heading', { name: 'Overview' });
+    await signInAsAdmin(user);
 
     await user.click(screen.getByRole('link', { name: 'Agents' }));
     const openButtons = await screen.findAllByRole('button', { name: /Register Agent/i });

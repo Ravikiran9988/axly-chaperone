@@ -7,7 +7,7 @@ describe('Protected routes', () => {
     installMockApiAdapter(({ url }) => {
       if (url === '/health') return { data: { status: 'ok', service: 'AXLY Chaperone', version: '0.1.0' } };
       if (url === '/ready') return { data: { status: 'ready', service: 'AXLY Chaperone', database: 'connected' } };
-      return { data: paginated([]) };
+      return undefined;
     });
 
     renderApp({ route: '/policies' });
