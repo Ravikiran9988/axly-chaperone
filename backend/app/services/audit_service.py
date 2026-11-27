@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from datetime import datetime
+from typing import Any, Literal
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -13,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import AuditPersistenceError, ResourceNotFoundError
 from app.core.logging import redact_secrets
 from app.models.audit import AuditEvent
-from app.models.enums import ExecutionStatus, PolicyDecision, VerificationStatus
+from app.models.enums import AuditEventType, ExecutionStatus, PolicyDecision, VerificationStatus
 
 logger = logging.getLogger("chaperone.audit")
 
@@ -37,11 +38,19 @@ class AuditService:
         policy_metadata: dict[str, Any] | None,
         execution_status: ExecutionStatus,
         verification_status: VerificationStatus,
+        event_type: AuditEventType = AuditEventType.POLICY_EVALUATION,
+        approval_id: UUID | None = None,
+        reviewer_id: str | None = None,
+        reviewed_at: datetime | None = None,
+        verification_outcome: str | None = None,
+        execution_metadata: dict[str, Any] | None = None,
+        commit: bool = True,
     ) -> AuditEvent:
         """Persist an immutable audit event; fail closed if persistence fails."""
         safe_resource = redact_secrets(resource)[:1024]
         safe_reason = redact_secrets(reason)[:2000]
         event = AuditEvent(
+            event_type=event_type.value,
             correlation_id=correlation_id[:64],
             agent_id=agent_id,
             tool_name=tool_name[:128],
@@ -52,13 +61,21 @@ class AuditService:
             policy_id=policy_id,
             policy_version=policy_version,
             policy_metadata=policy_metadata,
+            approval_id=approval_id,
+            reviewer_id=reviewer_id[:128] if reviewer_id else None,
+            reviewed_at=reviewed_at,
+            verification_outcome=verification_outcome,
+            execution_metadata=execution_metadata,
             execution_status=execution_status.value,
             verification_status=verification_status.value,
         )
         session.add(event)
         try:
-            await session.commit()
-            await session.refresh(event)
+            if commit:
+                await session.commit()
+                await session.refresh(event)
+            else:
+                await session.flush()
         except SQLAlchemyError as exc:
             await session.rollback()
             logger.error(
@@ -79,8 +96,11 @@ class AuditService:
         decision: PolicyDecision | None = None,
         correlation_id: str | None = None,
         verification_status: VerificationStatus | None = None,
+        event_type: AuditEventType | None = None,
+        approval_id: UUID | None = None,
+        order: Literal["asc", "desc"] = "desc",
     ) -> tuple[list[AuditEvent], int]:
-        """List audit events in reverse chronological order with pagination and filters."""
+        """List audit events with pagination, filtering, and chronological ordering."""
         filters = []
         if agent_id is not None:
             filters.append(AuditEvent.agent_id == agent_id)
@@ -92,15 +112,20 @@ class AuditService:
             filters.append(AuditEvent.correlation_id == correlation_id.strip())
         if verification_status is not None:
             filters.append(AuditEvent.verification_status == verification_status.value)
+        if event_type is not None:
+            filters.append(AuditEvent.event_type == event_type.value)
+        if approval_id is not None:
+            filters.append(AuditEvent.approval_id == approval_id)
 
         count_stmt = select(func.count()).select_from(AuditEvent).where(*filters)
         total = int((await session.execute(count_stmt)).scalar_one())
 
         offset = (page - 1) * page_size
+        order_col = AuditEvent.created_at.asc() if order == "asc" else AuditEvent.created_at.desc()
         stmt = (
             select(AuditEvent)
             .where(*filters)
-            .order_by(AuditEvent.created_at.desc(), AuditEvent.id.asc())
+            .order_by(order_col, AuditEvent.id.asc())
             .offset(offset)
             .limit(page_size)
         )

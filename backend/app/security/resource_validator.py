@@ -38,6 +38,7 @@ _COMMUNICATION_ARG_KEYS = frozenset(
     {"to", "recipient", "recipients", "email", "target", "channel", "cc", "bcc"}
 )
 _DATABASE_ARG_KEYS = frozenset({"table", "collection", "dataset", "resource", "target"})
+_DATABASE_RAW_SQL_KEYS = frozenset({"sql", "query", "raw_sql", "statement", "command"})
 _GENERIC_ARG_KEYS = frozenset(
     {"resource", "target", "path", "url", "uri", "file", "table", "recipient", "to"}
 )
@@ -209,25 +210,52 @@ def _check_nested_resource_keys(
     keys: frozenset[str],
     canonical: str,
     normalizer: Any,
+    allow_lists: bool = False,
 ) -> None:
     """Recursively verify any nested dicts/lists containing resource-bearing argument keys."""
     for key, val in args.items():
         if isinstance(val, dict):
             for nested_key, nested_val in val.items():
                 if nested_key in keys and nested_val is not None:
-                    if not isinstance(nested_val, str):
-                        raise ResourceValidationError(
-                            f"Unsafe nested argument '{key}.{nested_key}': expected string."
-                        )
-                    nested_canonical = normalizer(
-                        nested_val, field_name=f"arguments.{key}.{nested_key}"
+                    values = (
+                        nested_val
+                        if (allow_lists and isinstance(nested_val, list))
+                        else [nested_val]
                     )
-                    if nested_canonical != canonical:
+                    if not values:
                         raise ResourceValidationError(
-                            f"Resource mismatch between 'resource' and "
-                            f"'arguments.{key}.{nested_key}'."
+                            f"Unsafe empty list in 'arguments.{key}.{nested_key}'."
                         )
-            _check_nested_resource_keys(val, keys=keys, canonical=canonical, normalizer=normalizer)
+                    for item in values:
+                        if not isinstance(item, str):
+                            raise ResourceValidationError(
+                                f"Unsafe nested argument '{key}.{nested_key}': expected string."
+                            )
+                        nested_canonical = normalizer(
+                            item, field_name=f"arguments.{key}.{nested_key}"
+                        )
+                        if nested_canonical != canonical:
+                            raise ResourceValidationError(
+                                f"Resource mismatch between 'resource' and "
+                                f"'arguments.{key}.{nested_key}'."
+                            )
+            _check_nested_resource_keys(
+                val,
+                keys=keys,
+                canonical=canonical,
+                normalizer=normalizer,
+                allow_lists=allow_lists,
+            )
+        elif isinstance(val, list):
+            for item in val:
+                if isinstance(item, dict):
+                    _check_nested_resource_keys(
+                        item,
+                        keys=keys,
+                        canonical=canonical,
+                        normalizer=normalizer,
+                        allow_lists=allow_lists,
+                    )
 
 
 def validate_and_normalize_resource(
@@ -284,6 +312,12 @@ def validate_and_normalize_resource(
                     raise ResourceValidationError(
                         f"Resource host mismatch with 'arguments.{host_key}'."
                     )
+        _check_nested_resource_keys(
+            args,
+            keys=_NETWORK_ARG_KEYS,
+            canonical=canonical,
+            normalizer=normalize_network_resource,
+        )
         return canonical
 
     if kind == "communication":
@@ -306,10 +340,22 @@ def validate_and_normalize_resource(
                         raise ResourceValidationError(
                             f"Resource mismatch between 'resource' and 'arguments.{key}'."
                         )
+        _check_nested_resource_keys(
+            args,
+            keys=_COMMUNICATION_ARG_KEYS,
+            canonical=canonical,
+            normalizer=normalize_communication_resource,
+            allow_lists=True,
+        )
         return canonical
 
     if kind == "database":
         canonical = normalize_database_resource(resource)
+        for sql_key in _DATABASE_RAW_SQL_KEYS:
+            if sql_key in args and args[sql_key] is not None:
+                raise ResourceValidationError(
+                    f"Unsafe argument '{sql_key}': arbitrary SQL statements are prohibited."
+                )
         for key in _DATABASE_ARG_KEYS:
             if key in args and args[key] is not None:
                 if not isinstance(args[key], str):
@@ -321,6 +367,12 @@ def validate_and_normalize_resource(
                     raise ResourceValidationError(
                         f"Resource mismatch between 'resource' and 'arguments.{key}'."
                     )
+        _check_nested_resource_keys(
+            args,
+            keys=_DATABASE_ARG_KEYS,
+            canonical=canonical,
+            normalizer=normalize_database_resource,
+        )
         return canonical
 
     canonical = normalize_generic_resource(resource)
@@ -333,6 +385,12 @@ def validate_and_normalize_resource(
                 raise ResourceValidationError(
                     f"Resource mismatch between 'resource' and 'arguments.{key}'."
                 )
+    _check_nested_resource_keys(
+        args,
+        keys=_GENERIC_ARG_KEYS,
+        canonical=canonical,
+        normalizer=normalize_generic_resource,
+    )
     return canonical
 
 

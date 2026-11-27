@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import re
 from dataclasses import dataclass
 
 from fastapi import Depends, Header, Request
@@ -20,13 +22,16 @@ from app.core.security import (
 from app.models.agent import Agent
 from app.models.enums import AgentStatus, VerificationStatus
 
+_ADMIN_ACTOR_RE = re.compile(r"^[A-Za-z0-9._:@-]{2,64}$")
+
 
 @dataclass(frozen=True, slots=True)
 class AdminPrincipal:
-    """Verified administrative caller context."""
+    """Verified administrative caller context (never stores raw admin secret)."""
 
     authenticated: bool = True
     auth_scheme: str = "x-admin-key"
+    reviewer_id: str = "admin"
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +52,7 @@ def resolve_settings(request: Request) -> Settings:
 
 async def authenticate_admin(
     x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
+    x_admin_actor: str | None = Header(default=None, alias="X-Admin-Actor"),
     settings: Settings = Depends(resolve_settings),
 ) -> AdminPrincipal:
     """Authenticate an administrative request via the X-Admin-Key header."""
@@ -65,7 +71,11 @@ async def authenticate_admin(
             "Invalid administrative credentials.",
             code="INVALID_ADMIN_CREDENTIALS",
         )
-    return AdminPrincipal()
+    key_fingerprint = hashlib.sha256(configured_key.encode("utf-8")).hexdigest()[:12]
+    reviewer_id = f"admin:{key_fingerprint}"
+    if x_admin_actor and _ADMIN_ACTOR_RE.fullmatch(x_admin_actor.strip()):
+        reviewer_id = f"{x_admin_actor.strip()}:{key_fingerprint[:6]}"
+    return AdminPrincipal(reviewer_id=reviewer_id)
 
 
 async def authenticate_agent_key(

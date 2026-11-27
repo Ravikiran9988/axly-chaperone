@@ -1,4 +1,4 @@
-"""Read-only Pydantic v2 schemas for immutable audit trail events."""
+"""Read-only Pydantic v2 schemas for append-only audit trail events."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ class AuditEventResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    event_type: str
     correlation_id: str
     agent_id: UUID | None
     tool_name: str
@@ -27,6 +28,11 @@ class AuditEventResponse(BaseModel):
     policy_id: UUID | None
     policy_version: int | None
     policy_metadata: dict[str, Any] | None
+    approval_id: UUID | None
+    reviewer_id: str | None
+    reviewed_at: datetime | None
+    verification_outcome: str | None
+    execution_metadata: dict[str, Any] | None
     execution_status: ExecutionStatus
     verification_status: VerificationStatus
     created_at: datetime

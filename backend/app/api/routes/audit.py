@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db_session
-from app.models.enums import PolicyDecision, VerificationStatus
+from app.models.enums import AuditEventType, PolicyDecision, VerificationStatus
 from app.schemas.audit import AuditEventResponse
 from app.schemas.common import PaginatedResponse
 from app.security.authorization import require_admin
@@ -35,6 +36,9 @@ async def list_audit_events(
     decision: PolicyDecision | None = Query(default=None),
     correlation_id: str | None = Query(default=None),
     verification_status: VerificationStatus | None = Query(default=None),
+    event_type: AuditEventType | None = Query(default=None),
+    approval_id: UUID | None = Query(default=None),
+    order: Literal["asc", "desc"] = Query(default="desc"),
     session: AsyncSession = Depends(get_db_session),
 ) -> PaginatedResponse[AuditEventResponse]:
     """Query append-only gateway audit records (update/delete are intentionally unavailable)."""
@@ -47,6 +51,9 @@ async def list_audit_events(
         decision=decision,
         correlation_id=correlation_id,
         verification_status=verification_status,
+        event_type=event_type,
+        approval_id=approval_id,
+        order=order,
     )
     return PaginatedResponse.create(
         items=[AuditEventResponse.model_validate(item) for item in items],

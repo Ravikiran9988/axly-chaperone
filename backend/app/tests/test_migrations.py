@@ -1,4 +1,4 @@
-"""Tests verifying Alembic initial migration upgrade, downgrade, and PostgreSQL DDL output."""
+"""Tests verifying Alembic Phase 1 & Phase 2 migrations (upgrade, downgrade, PostgreSQL DDL)."""
 
 from __future__ import annotations
 
@@ -34,7 +34,19 @@ def test_alembic_upgrade_and_downgrade_on_isolated_db(tmp_path: Path) -> None:
     sync_engine = create_engine(sync_url)
     try:
         tables = set(inspect(sync_engine).get_table_names())
-        assert {"agents", "tools", "policies", "audit_events", "alembic_version"} <= tables
+        assert {
+            "agents",
+            "tools",
+            "policies",
+            "audit_events",
+            "approval_requests",
+            "verification_records",
+            "mock_emails",
+            "demo_invoices",
+            "demo_tasks",
+            "execution_idempotency",
+            "alembic_version",
+        } <= tables
     finally:
         sync_engine.dispose()
 
@@ -44,8 +56,8 @@ def test_alembic_upgrade_and_downgrade_on_isolated_db(tmp_path: Path) -> None:
     try:
         tables_after = set(inspect(sync_engine).get_table_names())
         assert "agents" not in tables_after
-        assert "tools" not in tables_after
-        assert "policies" not in tables_after
+        assert "approval_requests" not in tables_after
+        assert "verification_records" not in tables_after
         assert "audit_events" not in tables_after
     finally:
         sync_engine.dispose()
@@ -63,4 +75,8 @@ def test_alembic_offline_postgresql_ddl_generation() -> None:
     assert "CREATE TABLE tools" in ddl
     assert "CREATE TABLE policies" in ddl
     assert "CREATE TABLE audit_events" in ddl
+    assert "CREATE TABLE approval_requests" in ddl
+    assert "CREATE TABLE verification_records" in ddl
+    assert "CREATE TABLE mock_emails" in ddl
+    assert "CREATE TABLE demo_invoices" in ddl
     assert "JSONB" in ddl

@@ -12,6 +12,7 @@ from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
+from app.adapters.file_adapter import ensure_demo_sandbox
 from app.core.config import Settings
 from app.core.database import Base, build_engine, build_session_factory
 from app.main import create_app
@@ -42,8 +43,9 @@ async def test_engine(tmp_path: Path) -> AsyncIterator[AsyncEngine]:
 
 
 @pytest.fixture
-def test_settings() -> Settings:
-    """Create deterministic test settings with low PBKDF2 iterations for fast unit tests."""
+def test_settings(tmp_path: Path) -> Settings:
+    """Create deterministic test settings with low PBKDF2 iterations and isolated sandbox."""
+    sandbox_dir = ensure_demo_sandbox(tmp_path / "sandbox")
     return Settings(
         env="test",
         log_json=False,
@@ -53,6 +55,7 @@ def test_settings() -> Settings:
         api_key_hash_iterations=10_000,
         rate_limit_enabled=False,
         cors_origins=["http://localhost:3000"],
+        sandbox_dir=str(sandbox_dir),
     )
 
 

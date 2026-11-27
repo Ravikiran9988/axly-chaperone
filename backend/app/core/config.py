@@ -54,6 +54,14 @@ class Settings(BaseSettings):
     # Security limits on gateway payloads
     max_resource_length: int = Field(default=1024, ge=64, le=4096)
 
+    # Phase 2: Sandbox, approvals, execution timeouts, and MCP defaults
+    sandbox_dir: str = "sandbox_data"
+    approval_ttl_seconds: int = Field(default=900, ge=10, le=604_800)
+    tool_execution_timeout_seconds: float = Field(default=5.0, ge=0.1, le=60.0)
+    max_file_size_bytes: int = Field(default=1_048_576, ge=1024, le=10_485_760)
+    max_argument_payload_bytes: int = Field(default=32_768, ge=512, le=262_144)
+    mcp_agent_key: SecretStr | None = None
+
     @model_validator(mode="after")
     def validate_security_posture(self) -> Settings:
         """Fail closed on unsafe configurations in staging/production."""

@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from app.api.routes import agents, audit, gateway, health, policies, tools
+from app.api.routes import agents, approvals, audit, gateway, health, policies, tools
 from app.core.config import Settings, get_settings
 from app.core.database import build_engine, build_session_factory
 from app.core.exceptions import register_exception_handlers
@@ -80,6 +80,7 @@ def create_app(
     application.include_router(agents.router)
     application.include_router(tools.router)
     application.include_router(policies.router)
+    application.include_router(approvals.router)
     application.include_router(audit.router)
     application.include_router(gateway.router)
 

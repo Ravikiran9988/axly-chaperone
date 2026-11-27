@@ -1,4 +1,4 @@
-"""Pydantic v2 schemas for the Phase 1 Gateway evaluation endpoint."""
+"""Pydantic v2 schemas for Gateway evaluation and controlled execution endpoints."""
 
 from __future__ import annotations
 
@@ -55,3 +55,39 @@ class GatewayEvaluateResponse(BaseModel):
     agent_id: UUID
     matched_policy_id: UUID | None = None
     execution_status: str = "not_executed"
+
+
+class GatewayExecuteRequest(GatewayEvaluateRequest):
+    """Controlled tool execution request (optionally bound to an approved approval_id)."""
+
+    approval_id: UUID | None = None
+
+
+class VerificationSummary(BaseModel):
+    """Independent outcome verification metadata returned after execution."""
+
+    model_config = ConfigDict(frozen=True)
+
+    verification_id: UUID
+    status: Literal["VERIFIED", "FAILED", "INCONCLUSIVE", "NOT_APPLICABLE"]
+    method: str
+    message: str
+
+
+class GatewayExecuteResponse(BaseModel):
+    """Structured gateway execution response across ALLOW, DENY, and REQUIRE_APPROVAL paths."""
+
+    model_config = ConfigDict(frozen=True)
+
+    correlation_id: str
+    decision: Literal["ALLOW", "DENY", "REQUIRE_APPROVAL"]
+    status: Literal["EXECUTED", "BLOCKED", "PENDING", "FAILED"]
+    message: str
+    tool_name: str
+    action: str
+    resource: str
+    agent_id: UUID
+    approval_id: UUID | None = None
+    matched_policy_id: UUID | None = None
+    output: dict[str, Any] | None = None
+    verification: VerificationSummary | None = None
