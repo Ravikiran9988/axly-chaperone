@@ -1,19 +1,28 @@
 {
   "benchmark_name": "AXLY Chaperone Security & Governance Benchmark",
-  "timestamp_utc": "2026-11-27T16:20:51.363192+00:00",
+  "timestamp_utc": "2026-11-27T17:01:06.731336+00:00",
   "environment": {
     "platform": "Windows-10-10.0.19045-SP0",
     "python_version": "3.12.13",
     "cpu_count": 8,
     "processor": "Intel64 Family 6 Model 142 Stepping 10, GenuineIntel",
-    "database_backend": "sqlite+aiosqlite (isolated benchmark instance)"
+    "database_backend": "sqlite+aiosqlite (isolated temp instance; PostgreSQL benchmark URL not set)",
+    "pbkdf2_iterations": 200000,
+    "rate_limit_enabled": true,
+    "rate_limit_requests": 120,
+    "rate_limit_window_seconds": 60,
+    "commit_sha": "8750f0e"
   },
   "metrics": {
     "counts": {
-      "total_scenarios": 64,
-      "malicious_scenarios": 32,
-      "legitimate_scenarios": 32,
-      "passed_scenarios": 64,
+      "total_scenarios": 68,
+      "malicious_scenarios": 34,
+      "malicious_blocked": 34,
+      "false_negative_count": 0,
+      "legitimate_scenarios": 34,
+      "legitimate_allowed": 34,
+      "false_positive_count": 0,
+      "passed_scenarios": 68,
       "failed_scenarios": 0,
       "skipped_scenarios": 0
     },
@@ -25,44 +34,44 @@
       "outcome_verification_accuracy": 1.0
     },
     "denominators": {
-      "unauthorized_attempts": 32,
-      "unauthorized_prevented": 32,
-      "legitimate_attempts": 32,
-      "legitimate_succeeded": 32,
+      "unauthorized_attempts": 34,
+      "unauthorized_prevented": 34,
+      "legitimate_attempts": 34,
+      "legitimate_succeeded": 34,
       "false_blocks": 0,
-      "policy_cases": 50,
-      "policy_correct": 50,
-      "verification_cases": 26,
-      "verification_correct": 26
+      "policy_cases": 51,
+      "policy_correct": 51,
+      "verification_cases": 28,
+      "verification_correct": 28
     },
     "latency": {
       "gateway_total": {
-        "samples": 64,
-        "p50_ms": 129.196,
-        "p95_ms": 283.381,
-        "max_ms": 431.632,
-        "mean_ms": 143.34
+        "samples": 68,
+        "p50_ms": 199.001,
+        "p95_ms": 327.134,
+        "max_ms": 963.133,
+        "mean_ms": 212.977
       },
       "gateway_overhead_excluding_tool": {
-        "samples": 64,
-        "p50_ms": 123.203,
-        "p95_ms": 283.381,
-        "max_ms": 431.632,
-        "mean_ms": 139.148
+        "samples": 68,
+        "p50_ms": 199.001,
+        "p95_ms": 313.456,
+        "max_ms": 963.133,
+        "mean_ms": 210.346
       },
       "policy_engine_eval": {
-        "samples": 49,
-        "p50_ms": 0.151,
-        "p95_ms": 0.322,
-        "max_ms": 0.563,
-        "mean_ms": 0.169
+        "samples": 50,
+        "p50_ms": 0.054,
+        "p95_ms": 0.145,
+        "max_ms": 0.277,
+        "mean_ms": 0.066
       },
       "tool_adapter_execution": {
-        "samples": 21,
-        "p50_ms": 13.526,
-        "p95_ms": 19.771,
-        "max_ms": 19.981,
-        "mean_ms": 12.774
+        "samples": 22,
+        "p50_ms": 4.805,
+        "p95_ms": 18.366,
+        "max_ms": 19.609,
+        "mean_ms": 8.133
       }
     }
   },
@@ -92,8 +101,8 @@
       "is_policy_case": true,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 283.381,
-      "policy_eval_latency_ms": 0.207,
+      "gateway_latency_ms": 298.845,
+      "policy_eval_latency_ms": 0.076,
       "tool_exec_latency_ms": 0,
       "notes": null
     },
@@ -122,8 +131,8 @@
       "is_policy_case": true,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 105.745,
-      "policy_eval_latency_ms": 0.181,
+      "gateway_latency_ms": 195.003,
+      "policy_eval_latency_ms": 0.055,
       "tool_exec_latency_ms": 0,
       "notes": null
     },
@@ -153,8 +162,8 @@
       "is_policy_case": true,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 133.872,
-      "policy_eval_latency_ms": 0.22,
+      "gateway_latency_ms": 204.328,
+      "policy_eval_latency_ms": 0.051,
       "tool_exec_latency_ms": 0,
       "notes": null
     },
@@ -183,8 +192,8 @@
       "is_policy_case": true,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 93.156,
-      "policy_eval_latency_ms": 0.144,
+      "gateway_latency_ms": 197.121,
+      "policy_eval_latency_ms": 0.043,
       "tool_exec_latency_ms": 0,
       "notes": null
     },
@@ -213,8 +222,8 @@
       "is_policy_case": true,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 105.415,
-      "policy_eval_latency_ms": 0.16,
+      "gateway_latency_ms": 188.085,
+      "policy_eval_latency_ms": 0.06,
       "tool_exec_latency_ms": 0,
       "notes": null
     },
@@ -244,8 +253,8 @@
       "is_policy_case": true,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 96.377,
-      "policy_eval_latency_ms": 0.118,
+      "gateway_latency_ms": 189.824,
+      "policy_eval_latency_ms": 0.1,
       "tool_exec_latency_ms": 0,
       "notes": null
     },
@@ -274,8 +283,8 @@
       "is_policy_case": true,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 129.196,
-      "policy_eval_latency_ms": 0.105,
+      "gateway_latency_ms": 188.133,
+      "policy_eval_latency_ms": 0.043,
       "tool_exec_latency_ms": 0,
       "notes": null
     },
@@ -304,8 +313,8 @@
       "is_policy_case": true,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 101.591,
-      "policy_eval_latency_ms": 0.079,
+      "gateway_latency_ms": 196.877,
+      "policy_eval_latency_ms": 0.027,
       "tool_exec_latency_ms": 0,
       "notes": null
     },
@@ -334,8 +343,8 @@
       "is_policy_case": true,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 175.479,
-      "policy_eval_latency_ms": 0.268,
+      "gateway_latency_ms": 199.001,
+      "policy_eval_latency_ms": 0.028,
       "tool_exec_latency_ms": 0,
       "notes": null
     },
@@ -364,8 +373,8 @@
       "is_policy_case": true,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 431.632,
-      "policy_eval_latency_ms": 0.091,
+      "gateway_latency_ms": 206.334,
+      "policy_eval_latency_ms": 0.022,
       "tool_exec_latency_ms": 0,
       "notes": null
     },
@@ -394,8 +403,8 @@
       "is_policy_case": true,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 175.359,
-      "policy_eval_latency_ms": 0.075,
+      "gateway_latency_ms": 198.778,
+      "policy_eval_latency_ms": 0.027,
       "tool_exec_latency_ms": 0,
       "notes": null
     },
@@ -424,8 +433,8 @@
       "is_policy_case": true,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 167.782,
-      "policy_eval_latency_ms": 0.119,
+      "gateway_latency_ms": 187.674,
+      "policy_eval_latency_ms": 0.028,
       "tool_exec_latency_ms": 0,
       "notes": null
     },
@@ -446,7 +455,7 @@
       "is_policy_case": false,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 5.651,
+      "gateway_latency_ms": 0.86,
       "policy_eval_latency_ms": 0.0,
       "tool_exec_latency_ms": 0.0,
       "notes": null
@@ -468,7 +477,7 @@
       "is_policy_case": false,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 3.311,
+      "gateway_latency_ms": 0.685,
       "policy_eval_latency_ms": 0.0,
       "tool_exec_latency_ms": 0.0,
       "notes": null
@@ -500,8 +509,8 @@
       "is_policy_case": true,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 111.132,
-      "policy_eval_latency_ms": 0.237,
+      "gateway_latency_ms": 192.006,
+      "policy_eval_latency_ms": 0.068,
       "tool_exec_latency_ms": 0,
       "notes": null
     },
@@ -532,8 +541,8 @@
       "is_policy_case": true,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 120.81,
-      "policy_eval_latency_ms": 0.168,
+      "gateway_latency_ms": 192.151,
+      "policy_eval_latency_ms": 0.046,
       "tool_exec_latency_ms": 0,
       "notes": null
     },
@@ -567,8 +576,8 @@
       "is_policy_case": true,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 131.092,
-      "policy_eval_latency_ms": 0.137,
+      "gateway_latency_ms": 191.631,
+      "policy_eval_latency_ms": 0.049,
       "tool_exec_latency_ms": 0,
       "notes": null
     },
@@ -597,8 +606,8 @@
       "is_policy_case": true,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 97.791,
-      "policy_eval_latency_ms": 0.117,
+      "gateway_latency_ms": 196.729,
+      "policy_eval_latency_ms": 0.277,
       "tool_exec_latency_ms": 0,
       "notes": null
     },
@@ -627,8 +636,8 @@
       "is_policy_case": true,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 110.478,
-      "policy_eval_latency_ms": 0.128,
+      "gateway_latency_ms": 201.328,
+      "policy_eval_latency_ms": 0.036,
       "tool_exec_latency_ms": 0,
       "notes": null
     },
@@ -658,8 +667,8 @@
       "is_policy_case": true,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 116.608,
-      "policy_eval_latency_ms": 0.126,
+      "gateway_latency_ms": 188.504,
+      "policy_eval_latency_ms": 0.032,
       "tool_exec_latency_ms": 0,
       "notes": null
     },
@@ -693,9 +702,9 @@
       "is_policy_case": false,
       "is_verification_case": true,
       "verification_correct": true,
-      "gateway_latency_ms": 186.66,
-      "policy_eval_latency_ms": 0.126,
-      "tool_exec_latency_ms": 5.777,
+      "gateway_latency_ms": 239.855,
+      "policy_eval_latency_ms": 0.054,
+      "tool_exec_latency_ms": 1.581,
       "notes": null
     },
     {
@@ -723,8 +732,8 @@
       "is_policy_case": true,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 107.252,
-      "policy_eval_latency_ms": 0.193,
+      "gateway_latency_ms": 189.746,
+      "policy_eval_latency_ms": 0.054,
       "tool_exec_latency_ms": 0,
       "notes": null
     },
@@ -755,8 +764,8 @@
       "is_policy_case": true,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 110.103,
-      "policy_eval_latency_ms": 0.563,
+      "gateway_latency_ms": 188.332,
+      "policy_eval_latency_ms": 0.069,
       "tool_exec_latency_ms": 0,
       "notes": null
     },
@@ -782,7 +791,7 @@
       "is_policy_case": false,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 75.405,
+      "gateway_latency_ms": 47.61,
       "policy_eval_latency_ms": 0,
       "tool_exec_latency_ms": 0,
       "notes": null
@@ -809,7 +818,7 @@
       "is_policy_case": false,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 91.036,
+      "gateway_latency_ms": 187.995,
       "policy_eval_latency_ms": 0,
       "tool_exec_latency_ms": 0,
       "notes": null
@@ -836,7 +845,7 @@
       "is_policy_case": false,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 81.847,
+      "gateway_latency_ms": 185.598,
       "policy_eval_latency_ms": 0,
       "tool_exec_latency_ms": 0,
       "notes": null
@@ -863,8 +872,8 @@
       "is_policy_case": true,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 77.025,
-      "policy_eval_latency_ms": 0.022,
+      "gateway_latency_ms": 204.458,
+      "policy_eval_latency_ms": 0.012,
       "tool_exec_latency_ms": 0,
       "notes": null
     },
@@ -884,7 +893,7 @@
             "subject": "Original Approved Subject",
             "body": "Original safe payload"
           },
-          "approval_id": "5a4879f0-9e63-420f-a8ff-b4ac909de941"
+          "approval_id": "689953c5-777d-4edd-a1ed-77c01982c060"
         }
       },
       "expected_decision": "APPROVAL_NOT_EXECUTABLE",
@@ -896,8 +905,8 @@
       "is_policy_case": false,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 68.282,
-      "policy_eval_latency_ms": 0.124,
+      "gateway_latency_ms": 193.512,
+      "policy_eval_latency_ms": 0.093,
       "tool_exec_latency_ms": 0,
       "notes": null
     },
@@ -917,7 +926,7 @@
             "subject": "Original Approved Subject",
             "body": "TAMPERED EXFILTRATION BODY"
           },
-          "approval_id": "5a4879f0-9e63-420f-a8ff-b4ac909de941"
+          "approval_id": "689953c5-777d-4edd-a1ed-77c01982c060"
         }
       },
       "expected_decision": "PAYLOAD_TAMPERING_DETECTED",
@@ -929,8 +938,8 @@
       "is_policy_case": false,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 65.791,
-      "policy_eval_latency_ms": 0.076,
+      "gateway_latency_ms": 190.443,
+      "policy_eval_latency_ms": 0.051,
       "tool_exec_latency_ms": 0,
       "notes": null
     },
@@ -940,7 +949,7 @@
       "category": "expired_approval",
       "description": "Expired pending approval cannot be approved or executed (409 APPROVAL_EXPIRED)",
       "input_data": {
-        "approval_id": "4bc689db-a5cc-4b98-ade2-5d55c621e4d6"
+        "approval_id": "13cb90c9-9c2b-4221-9a60-fb3a58e20983"
       },
       "expected_decision": "APPROVAL_EXPIRED",
       "expected_execution_behavior": "rejected_before_execution",
@@ -951,7 +960,7 @@
       "is_policy_case": false,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 70.515,
+      "gateway_latency_ms": 23.056,
       "policy_eval_latency_ms": 0.0,
       "tool_exec_latency_ms": 0.0,
       "notes": null
@@ -975,7 +984,7 @@
       "is_policy_case": true,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 79.941,
+      "gateway_latency_ms": 186.875,
       "policy_eval_latency_ms": 0.0,
       "tool_exec_latency_ms": 0.0,
       "notes": null
@@ -1005,9 +1014,55 @@
       "is_policy_case": true,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 84.196,
-      "policy_eval_latency_ms": 0.16,
+      "gateway_latency_ms": 218.883,
+      "policy_eval_latency_ms": 0.044,
       "tool_exec_latency_ms": 0,
+      "notes": null
+    },
+    {
+      "test_id": "MAL-33",
+      "classification": "malicious",
+      "category": "concurrency_replay_race",
+      "description": "Concurrent approval execution race executes once (200 + 409)",
+      "input_data": {
+        "approval_id": "43c52346-a4da-449d-9afb-0bf376a72f78",
+        "concurrency": 2
+      },
+      "expected_decision": "SINGLE_EXECUTION_409",
+      "expected_execution_behavior": "duplicate_blocked",
+      "actual_decision": "STATUSES_[200, 409]_EXEC_1",
+      "actual_execution_behavior": "duplicate_blocked",
+      "verification_status": null,
+      "passed": true,
+      "is_policy_case": false,
+      "is_verification_case": false,
+      "verification_correct": null,
+      "gateway_latency_ms": 462.619,
+      "policy_eval_latency_ms": 0.0,
+      "tool_exec_latency_ms": 0.0,
+      "notes": null
+    },
+    {
+      "test_id": "MAL-34",
+      "classification": "malicious",
+      "category": "mcp_credential_smuggling",
+      "description": "MCP tool invocation attempting agent_api_key argument is rejected",
+      "input_data": {
+        "mcp_tool": "file_tool",
+        "extra_arg": "agent_api_key"
+      },
+      "expected_decision": "INVALID_MCP_ARGUMENTS",
+      "expected_execution_behavior": "rejected_before_execution",
+      "actual_decision": "INVALID_MCP_ARGUMENTS",
+      "actual_execution_behavior": "rejected_before_execution",
+      "verification_status": null,
+      "passed": true,
+      "is_policy_case": false,
+      "is_verification_case": false,
+      "verification_correct": null,
+      "gateway_latency_ms": 1.809,
+      "policy_eval_latency_ms": 0.0,
+      "tool_exec_latency_ms": 0.0,
       "notes": null
     },
     {
@@ -1035,9 +1090,9 @@
       "is_policy_case": true,
       "is_verification_case": true,
       "verification_correct": true,
-      "gateway_latency_ms": 201.828,
-      "policy_eval_latency_ms": 0.318,
-      "tool_exec_latency_ms": 15.365,
+      "gateway_latency_ms": 251.174,
+      "policy_eval_latency_ms": 0.057,
+      "tool_exec_latency_ms": 12.413,
       "notes": null
     },
     {
@@ -1065,9 +1120,9 @@
       "is_policy_case": true,
       "is_verification_case": true,
       "verification_correct": true,
-      "gateway_latency_ms": 212.367,
-      "policy_eval_latency_ms": 0.22,
-      "tool_exec_latency_ms": 12.495,
+      "gateway_latency_ms": 303.936,
+      "policy_eval_latency_ms": 0.055,
+      "tool_exec_latency_ms": 18.366,
       "notes": null
     },
     {
@@ -1096,9 +1151,9 @@
       "is_policy_case": true,
       "is_verification_case": true,
       "verification_correct": true,
-      "gateway_latency_ms": 182.509,
-      "policy_eval_latency_ms": 0.18,
-      "tool_exec_latency_ms": 13.851,
+      "gateway_latency_ms": 284.867,
+      "policy_eval_latency_ms": 0.123,
+      "tool_exec_latency_ms": 19.609,
       "notes": null
     },
     {
@@ -1126,9 +1181,9 @@
       "is_policy_case": true,
       "is_verification_case": true,
       "verification_correct": true,
-      "gateway_latency_ms": 198.07,
-      "policy_eval_latency_ms": 0.222,
-      "tool_exec_latency_ms": 9.812,
+      "gateway_latency_ms": 254.363,
+      "policy_eval_latency_ms": 0.145,
+      "tool_exec_latency_ms": 5.253,
       "notes": null
     },
     {
@@ -1157,9 +1212,9 @@
       "is_policy_case": true,
       "is_verification_case": true,
       "verification_correct": true,
-      "gateway_latency_ms": 199.056,
-      "policy_eval_latency_ms": 0.212,
-      "tool_exec_latency_ms": 15.317,
+      "gateway_latency_ms": 331.021,
+      "policy_eval_latency_ms": 0.066,
+      "tool_exec_latency_ms": 17.565,
       "notes": null
     },
     {
@@ -1187,9 +1242,9 @@
       "is_policy_case": true,
       "is_verification_case": true,
       "verification_correct": true,
-      "gateway_latency_ms": 208.182,
-      "policy_eval_latency_ms": 0.461,
-      "tool_exec_latency_ms": 13.228,
+      "gateway_latency_ms": 240.121,
+      "policy_eval_latency_ms": 0.054,
+      "tool_exec_latency_ms": 4.291,
       "notes": null
     },
     {
@@ -1217,8 +1272,8 @@
       "is_policy_case": true,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 87.891,
-      "policy_eval_latency_ms": 0.096,
+      "gateway_latency_ms": 186.916,
+      "policy_eval_latency_ms": 0.056,
       "tool_exec_latency_ms": 0,
       "notes": null
     },
@@ -1241,7 +1296,7 @@
       "is_policy_case": true,
       "is_verification_case": true,
       "verification_correct": true,
-      "gateway_latency_ms": 182.977,
+      "gateway_latency_ms": 250.019,
       "policy_eval_latency_ms": 0.0,
       "tool_exec_latency_ms": 0.0,
       "notes": null
@@ -1273,9 +1328,9 @@
       "is_policy_case": true,
       "is_verification_case": true,
       "verification_correct": true,
-      "gateway_latency_ms": 192.199,
-      "policy_eval_latency_ms": 0.109,
-      "tool_exec_latency_ms": 15.588,
+      "gateway_latency_ms": 270.354,
+      "policy_eval_latency_ms": 0.053,
+      "tool_exec_latency_ms": 8.366,
       "notes": null
     },
     {
@@ -1305,9 +1360,9 @@
       "is_policy_case": true,
       "is_verification_case": true,
       "verification_correct": true,
-      "gateway_latency_ms": 203.044,
-      "policy_eval_latency_ms": 0.173,
-      "tool_exec_latency_ms": 15.744,
+      "gateway_latency_ms": 254.954,
+      "policy_eval_latency_ms": 0.056,
+      "tool_exec_latency_ms": 3.643,
       "notes": null
     },
     {
@@ -1335,9 +1390,9 @@
       "is_policy_case": true,
       "is_verification_case": true,
       "verification_correct": true,
-      "gateway_latency_ms": 217.015,
-      "policy_eval_latency_ms": 0.12,
-      "tool_exec_latency_ms": 14.72,
+      "gateway_latency_ms": 240.862,
+      "policy_eval_latency_ms": 0.042,
+      "tool_exec_latency_ms": 4.227,
       "notes": null
     },
     {
@@ -1367,8 +1422,8 @@
       "is_policy_case": true,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 229.799,
-      "policy_eval_latency_ms": 0.191,
+      "gateway_latency_ms": 206.314,
+      "policy_eval_latency_ms": 0.053,
       "tool_exec_latency_ms": 0,
       "notes": null
     },
@@ -1378,7 +1433,7 @@
       "category": "approval_workflow",
       "description": "Administrator approval executes email_tool.send once and verifies delivery",
       "input_data": {
-        "approval_id": "48715168-9c65-4988-bcf0-bea21cccd561",
+        "approval_id": "21e514b7-26ff-4875-b386-c91316861d34",
         "execute_now": true
       },
       "expected_decision": "APPROVED_EXECUTED",
@@ -1390,7 +1445,7 @@
       "is_policy_case": false,
       "is_verification_case": true,
       "verification_correct": true,
-      "gateway_latency_ms": 420.848,
+      "gateway_latency_ms": 111.791,
       "policy_eval_latency_ms": 0.0,
       "tool_exec_latency_ms": 0.0,
       "notes": null
@@ -1411,7 +1466,7 @@
             "subject": "Original Approved Subject",
             "body": "Original safe payload"
           },
-          "approval_id": "5a4879f0-9e63-420f-a8ff-b4ac909de941"
+          "approval_id": "689953c5-777d-4edd-a1ed-77c01982c060"
         }
       },
       "expected_decision": "ALLOW",
@@ -1423,9 +1478,9 @@
       "is_policy_case": true,
       "is_verification_case": true,
       "verification_correct": true,
-      "gateway_latency_ms": 313.017,
-      "policy_eval_latency_ms": 0.322,
-      "tool_exec_latency_ms": 15.077,
+      "gateway_latency_ms": 277.598,
+      "policy_eval_latency_ms": 0.11,
+      "tool_exec_latency_ms": 3.995,
       "notes": null
     },
     {
@@ -1434,7 +1489,7 @@
       "category": "approval_workflow",
       "description": "Administrator cleanly rejects pending approval without executing tool",
       "input_data": {
-        "approval_id": "39bb0731-efd5-4bc6-81d6-c1222fcdb35c"
+        "approval_id": "e51379b0-b7b2-4796-aaf9-f8569c3deda6"
       },
       "expected_decision": "REJECTED",
       "expected_execution_behavior": "rejected_before_execution",
@@ -1445,7 +1500,7 @@
       "is_policy_case": false,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 81.478,
+      "gateway_latency_ms": 24.272,
       "policy_eval_latency_ms": 0.0,
       "tool_exec_latency_ms": 0.0,
       "notes": null
@@ -1481,9 +1536,9 @@
       "is_policy_case": true,
       "is_verification_case": true,
       "verification_correct": true,
-      "gateway_latency_ms": 210.05,
-      "policy_eval_latency_ms": 0.156,
-      "tool_exec_latency_ms": 19.981,
+      "gateway_latency_ms": 262.387,
+      "policy_eval_latency_ms": 0.054,
+      "tool_exec_latency_ms": 4.642,
       "notes": null
     },
     {
@@ -1514,9 +1569,9 @@
       "is_policy_case": true,
       "is_verification_case": true,
       "verification_correct": true,
-      "gateway_latency_ms": 215.47,
-      "policy_eval_latency_ms": 0.187,
-      "tool_exec_latency_ms": 7.649,
+      "gateway_latency_ms": 269.891,
+      "policy_eval_latency_ms": 0.063,
+      "tool_exec_latency_ms": 7.999,
       "notes": null
     },
     {
@@ -1532,7 +1587,7 @@
           "resource": "demo_invoices",
           "arguments": {
             "table": "demo_invoices",
-            "record_id": "7779b3fa-2028-479e-af30-0237f15a4449",
+            "record_id": "a88c6b54-6ddb-4cee-b024-976c747de898",
             "data": {
               "status": "approved"
             }
@@ -1548,9 +1603,9 @@
       "is_policy_case": true,
       "is_verification_case": true,
       "verification_correct": true,
-      "gateway_latency_ms": 191.994,
-      "policy_eval_latency_ms": 0.18,
-      "tool_exec_latency_ms": 19.771,
+      "gateway_latency_ms": 311.157,
+      "policy_eval_latency_ms": 0.237,
+      "tool_exec_latency_ms": 4.805,
       "notes": null
     },
     {
@@ -1583,9 +1638,9 @@
       "is_policy_case": true,
       "is_verification_case": true,
       "verification_correct": true,
-      "gateway_latency_ms": 201.546,
-      "policy_eval_latency_ms": 0.114,
-      "tool_exec_latency_ms": 16.577,
+      "gateway_latency_ms": 268.88,
+      "policy_eval_latency_ms": 0.052,
+      "tool_exec_latency_ms": 5.851,
       "notes": null
     },
     {
@@ -1616,9 +1671,9 @@
       "is_policy_case": true,
       "is_verification_case": true,
       "verification_correct": true,
-      "gateway_latency_ms": 217.879,
-      "policy_eval_latency_ms": 0.12,
-      "tool_exec_latency_ms": 8.37,
+      "gateway_latency_ms": 310.451,
+      "policy_eval_latency_ms": 0.056,
+      "tool_exec_latency_ms": 8.995,
       "notes": null
     },
     {
@@ -1634,7 +1689,7 @@
           "resource": "demo_tasks",
           "arguments": {
             "table": "demo_tasks",
-            "record_id": "8f11a4a4-8eb5-4afb-9084-304c89dd8313",
+            "record_id": "4addbc80-bf34-433b-98d6-bd01f23323c4",
             "data": {
               "status": "completed"
             }
@@ -1650,9 +1705,9 @@
       "is_policy_case": true,
       "is_verification_case": true,
       "verification_correct": true,
-      "gateway_latency_ms": 161.009,
-      "policy_eval_latency_ms": 0.133,
-      "tool_exec_latency_ms": 13.526,
+      "gateway_latency_ms": 327.134,
+      "policy_eval_latency_ms": 0.045,
+      "tool_exec_latency_ms": 4.526,
       "notes": null
     },
     {
@@ -1681,9 +1736,9 @@
       "is_policy_case": true,
       "is_verification_case": true,
       "verification_correct": true,
-      "gateway_latency_ms": 204.582,
-      "policy_eval_latency_ms": 0.151,
-      "tool_exec_latency_ms": 13.181,
+      "gateway_latency_ms": 270.267,
+      "policy_eval_latency_ms": 0.058,
+      "tool_exec_latency_ms": 16.494,
       "notes": null
     },
     {
@@ -1712,7 +1767,7 @@
       "is_policy_case": true,
       "is_verification_case": true,
       "verification_correct": true,
-      "gateway_latency_ms": 40.578,
+      "gateway_latency_ms": 176.259,
       "policy_eval_latency_ms": 0,
       "tool_exec_latency_ms": 0,
       "notes": null
@@ -1742,9 +1797,9 @@
       "is_policy_case": true,
       "is_verification_case": true,
       "verification_correct": true,
-      "gateway_latency_ms": 129.757,
-      "policy_eval_latency_ms": 0.176,
-      "tool_exec_latency_ms": 6.554,
+      "gateway_latency_ms": 255.845,
+      "policy_eval_latency_ms": 0.053,
+      "tool_exec_latency_ms": 4.765,
       "notes": null
     },
     {
@@ -1773,9 +1828,9 @@
       "is_policy_case": true,
       "is_verification_case": true,
       "verification_correct": true,
-      "gateway_latency_ms": 148.477,
-      "policy_eval_latency_ms": 0.115,
-      "tool_exec_latency_ms": 11.626,
+      "gateway_latency_ms": 273.393,
+      "policy_eval_latency_ms": 0.122,
+      "tool_exec_latency_ms": 17.606,
       "notes": null
     },
     {
@@ -1804,8 +1859,8 @@
       "is_policy_case": true,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 65.484,
-      "policy_eval_latency_ms": 0.199,
+      "gateway_latency_ms": 194.944,
+      "policy_eval_latency_ms": 0.063,
       "tool_exec_latency_ms": 0,
       "notes": null
     },
@@ -1826,7 +1881,7 @@
       "is_policy_case": false,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 10.668,
+      "gateway_latency_ms": 2.709,
       "policy_eval_latency_ms": 0.0,
       "tool_exec_latency_ms": 0.0,
       "notes": null
@@ -1850,7 +1905,7 @@
       "is_policy_case": true,
       "is_verification_case": true,
       "verification_correct": true,
-      "gateway_latency_ms": 166.661,
+      "gateway_latency_ms": 231.304,
       "policy_eval_latency_ms": 0.0,
       "tool_exec_latency_ms": 0.0,
       "notes": null
@@ -1881,9 +1936,9 @@
       "is_policy_case": true,
       "is_verification_case": true,
       "verification_correct": true,
-      "gateway_latency_ms": 141.106,
-      "policy_eval_latency_ms": 0.088,
-      "tool_exec_latency_ms": 4.049,
+      "gateway_latency_ms": 234.221,
+      "policy_eval_latency_ms": 0.074,
+      "tool_exec_latency_ms": 2.061,
       "notes": null
     },
     {
@@ -1904,7 +1959,7 @@
       "is_policy_case": false,
       "is_verification_case": true,
       "verification_correct": true,
-      "gateway_latency_ms": 26.391,
+      "gateway_latency_ms": 19.181,
       "policy_eval_latency_ms": 0.0,
       "tool_exec_latency_ms": 0.0,
       "notes": null
@@ -1934,8 +1989,8 @@
       "is_policy_case": true,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 77.0,
-      "policy_eval_latency_ms": 0.087,
+      "gateway_latency_ms": 222.959,
+      "policy_eval_latency_ms": 0.044,
       "tool_exec_latency_ms": 0,
       "notes": null
     },
@@ -1943,7 +1998,7 @@
       "test_id": "LEG-32",
       "classification": "legitimate",
       "category": "audit_integrity",
-      "description": "Audit cryptographic record_hash integrity check confirms zero tampered rows",
+      "description": "Full chained audit integrity check confirms zero tampering or gaps",
       "input_data": {
         "endpoint": "/api/v1/audit-events/integrity"
       },
@@ -1956,10 +2011,63 @@
       "is_policy_case": false,
       "is_verification_case": false,
       "verification_correct": null,
-      "gateway_latency_ms": 40.9,
+      "gateway_latency_ms": 21.727,
       "policy_eval_latency_ms": 0.0,
       "tool_exec_latency_ms": 0.0,
-      "notes": "Checked 114 audit events"
+      "notes": "Checked 120 chained audit events"
+    },
+    {
+      "test_id": "LEG-33",
+      "classification": "legitimate",
+      "category": "concurrency_reliability",
+      "description": "Four concurrent authorized file reads succeed and verify independently",
+      "input_data": {
+        "concurrency": 4,
+        "resource": "documents/invoice.txt"
+      },
+      "expected_decision": "ALLOW",
+      "expected_execution_behavior": "executed_and_verified",
+      "actual_decision": "ALLOW",
+      "actual_execution_behavior": "executed_and_verified",
+      "verification_status": "VERIFIED",
+      "passed": true,
+      "is_policy_case": false,
+      "is_verification_case": true,
+      "verification_correct": true,
+      "gateway_latency_ms": 963.133,
+      "policy_eval_latency_ms": 0.0,
+      "tool_exec_latency_ms": 0.0,
+      "notes": null
+    },
+    {
+      "test_id": "LEG-34",
+      "classification": "legitimate",
+      "category": "outcome_verification",
+      "description": "VerificationEngine detects truncated directory listing & flags FAILED",
+      "input_data": {
+        "endpoint": "/api/v1/gateway/execute",
+        "payload": {
+          "tool_name": "file_tool",
+          "action": "list",
+          "resource": "documents",
+          "arguments": {
+            "path": "documents"
+          }
+        }
+      },
+      "expected_decision": "ALLOW",
+      "expected_execution_behavior": "verification_failed",
+      "actual_decision": "ALLOW",
+      "actual_execution_behavior": "verification_failed",
+      "verification_status": "FAILED",
+      "passed": true,
+      "is_policy_case": true,
+      "is_verification_case": true,
+      "verification_correct": true,
+      "gateway_latency_ms": 243.345,
+      "policy_eval_latency_ms": 0.06,
+      "tool_exec_latency_ms": 1.884,
+      "notes": null
     }
   ]
 }

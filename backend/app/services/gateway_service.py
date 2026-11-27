@@ -103,10 +103,12 @@ class GatewayService:
         resource: str = "api/v1/gateway/evaluate",
     ) -> None:
         """Persist an audit event for unauthenticated or disabled-agent calls, then raise."""
+        agent_id = auth_result.agent.id if auth_result.agent is not None else None
+        await session.commit()
         await self._audit_service.record_event(
             session,
             correlation_id=correlation_id,
-            agent_id=auth_result.agent.id if auth_result.agent is not None else None,
+            agent_id=agent_id,
             tool_name=tool_name,
             action=action,
             resource=resource,
@@ -179,6 +181,8 @@ class GatewayService:
             ),
             policies=policy_rules,
         )
+        # Close read-only snapshot cleanly before downstream audit lock acquisition
+        await session.commit()
         return result, tool_ctx
 
     async def evaluate_request(
@@ -531,6 +535,7 @@ class GatewayService:
             arguments=payload.arguments,
             settings=settings,
         )
+        await session.commit()
         exec_ok = dispatch_res.status == ExecutionStatus.EXECUTED
 
         exec_audit = await self._audit_service.record_event(
@@ -569,6 +574,7 @@ class GatewayService:
             settings=settings,
             audit_event_id=exec_audit.id,
         )
+        await session.commit()
 
         await self._audit_service.record_event(
             session,

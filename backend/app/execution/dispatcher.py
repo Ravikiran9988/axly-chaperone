@@ -47,7 +47,9 @@ class ExecutionDispatcher:
         tool_row = (
             await session.execute(select(Tool).where(Tool.name == tool_name))
         ).scalar_one_or_none()
-        if tool_row is None or not tool_row.enabled:
+        tool_enabled = tool_row is not None and tool_row.enabled
+        await session.commit()
+        if not tool_enabled:
             return DispatchResult(
                 status=ExecutionStatus.FAILED,
                 summary=f"Tool '{tool_name}' is not registered or is disabled.",

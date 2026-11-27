@@ -471,6 +471,7 @@ class ApprovalService:
             settings=settings,
             approval_id=approval.id,
         )
+        await session.commit()
         exec_succeeded = dispatch_res.status == ExecutionStatus.EXECUTED
 
         exec_audit = await self._audit.record_event(
