@@ -16,6 +16,7 @@ from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
 from app.middleware.correlation import CorrelationIdMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
+from app.middleware.request_size import RequestSizeLimitMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
 
 
@@ -49,19 +50,23 @@ def create_app(
             if owns_engine:
                 await db_engine.dispose()
 
+    is_prod = resolved_settings.env == "production"
     application = FastAPI(
         title=resolved_settings.app_name,
         version=resolved_settings.app_version,
         description=(
-            "AXLY Chaperone — AI Agent Security & Governance Gateway (Phase 1). "
+            "AXLY Chaperone — AI Agent Security & Governance Gateway. "
             "Safe autonomy. Human control."
         ),
+        docs_url=None if is_prod else "/docs",
+        redoc_url=None if is_prod else "/redoc",
+        openapi_url=None if is_prod else "/openapi.json",
         lifespan=lifespan,
     )
     application.state.settings = resolved_settings
 
     # Middleware execution order is outer-to-inner (last added runs first):
-    # CorrelationId -> SecurityHeaders -> RateLimit -> CORS -> Route
+    # CorrelationId -> SecurityHeaders -> RateLimit -> RequestSizeLimit -> CORS -> Route
     if resolved_settings.cors_origins:
         application.add_middleware(
             CORSMiddleware,
@@ -70,6 +75,7 @@ def create_app(
             allow_methods=resolved_settings.cors_allow_methods,
             allow_headers=resolved_settings.cors_allow_headers,
         )
+    application.add_middleware(RequestSizeLimitMiddleware, settings=resolved_settings)
     application.add_middleware(RateLimitMiddleware, settings=resolved_settings)
     application.add_middleware(SecurityHeadersMiddleware)
     application.add_middleware(CorrelationIdMiddleware)

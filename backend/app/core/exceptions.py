@@ -10,7 +10,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.core.logging import correlation_id_var
+from app.core.logging import correlation_id_var, redact_secrets
 
 logger = logging.getLogger("chaperone.exceptions")
 
@@ -140,7 +140,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             status_code=exc.status_code,
             content=_error_payload(
                 code=exc.code,
-                message=exc.message,
+                message=redact_secrets(exc.message),
                 correlation_id=correlation_id,
             ),
             headers=headers,
@@ -157,7 +157,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             sanitized_details.append(
                 {
                     "loc": [str(part) for part in err.get("loc", ())],
-                    "msg": str(err.get("msg", "Invalid value")),
+                    "msg": redact_secrets(str(err.get("msg", "Invalid value"))),
                     "type": str(err.get("type", "value_error")),
                 }
             )
@@ -184,7 +184,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             status_code=exc.status_code,
             content=_error_payload(
                 code="HTTP_ERROR",
-                message=str(exc.detail) if exc.detail else "HTTP error",
+                message=redact_secrets(str(exc.detail)) if exc.detail else "HTTP error",
                 correlation_id=correlation_id,
             ),
             headers=headers,

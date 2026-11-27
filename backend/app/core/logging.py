@@ -16,15 +16,20 @@ _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
         r"(?i)(x-agent-key|x-admin-key|authorization|api_key|password)\s*[:=]\s*[^\s,;\"']+"
     ),
+    re.compile(r"Bearer\s+[A-Za-z0-9._~+/=-]+", re.IGNORECASE),
     re.compile(r"pbkdf2_sha256\$\d+\$[A-Za-z0-9_=-]+\$[A-Za-z0-9_=-]+"),
+    re.compile(r"(postgresql(?:\+[a-z0-9_]+)?://[^:\s]+:)([^@\s]+)(@)", re.IGNORECASE),
 )
 
 
 def redact_secrets(text: str) -> str:
-    """Scrub API keys, credential headers, and hashes from arbitrary log strings."""
+    """Scrub API keys, credential headers, DSN passwords, and hashes from arbitrary strings."""
     redacted = text
-    for pattern in _SECRET_PATTERNS:
-        redacted = pattern.sub("[REDACTED]", redacted)
+    for idx, pattern in enumerate(_SECRET_PATTERNS):
+        if idx == len(_SECRET_PATTERNS) - 1:
+            redacted = pattern.sub(r"\1[REDACTED]\3", redacted)
+        else:
+            redacted = pattern.sub("[REDACTED]", redacted)
     return redacted
 
 

@@ -45,6 +45,8 @@ def build_engine(
     if not database_url.startswith("sqlite"):
         kwargs["pool_size"] = pool_size
         kwargs["max_overflow"] = max_overflow
+        if database_url.startswith("postgresql"):
+            kwargs["connect_args"] = {"command_timeout": 30, "timeout": 10}
     return create_async_engine(database_url, **kwargs)
 
 

@@ -17,19 +17,41 @@ from app.core.security import parse_agent_api_key
 
 
 class InMemorySlidingWindowLimiter:
-    """Thread-safe sliding window rate limiter keyed by credential identifier or client IP."""
+    """Thread-safe bounded sliding window rate limiter keyed by credential ID or client IP."""
 
-    def __init__(self, *, max_requests: int, window_seconds: int) -> None:
+    def __init__(
+        self,
+        *,
+        max_requests: int,
+        window_seconds: int,
+        max_buckets: int = 10_000,
+    ) -> None:
         self._max_requests = max_requests
         self._window_seconds = window_seconds
+        self._max_buckets = max_buckets
         self._buckets: dict[str, deque[float]] = defaultdict(deque)
         self._lock = Lock()
+
+    def _prune_stale_locked(self, cutoff: float) -> None:
+        stale_keys = [
+            key
+            for key, bucket in self._buckets.items()
+            if not bucket or bucket[-1] <= cutoff
+        ]
+        for key in stale_keys:
+            del self._buckets[key]
 
     def check_and_consume(self, key: str) -> tuple[bool, int]:
         """Return (allowed, retry_after_seconds)."""
         now = time.monotonic()
         cutoff = now - self._window_seconds
         with self._lock:
+            if len(self._buckets) >= self._max_buckets and key not in self._buckets:
+                self._prune_stale_locked(cutoff)
+                while len(self._buckets) >= self._max_buckets:
+                    oldest_key = next(iter(self._buckets))
+                    del self._buckets[oldest_key]
+
             bucket = self._buckets[key]
             while bucket and bucket[0] <= cutoff:
                 bucket.popleft()

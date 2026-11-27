@@ -53,6 +53,7 @@ class Settings(BaseSettings):
 
     # Security limits on gateway payloads
     max_resource_length: int = Field(default=1024, ge=64, le=4096)
+    max_request_body_bytes: int = Field(default=262_144, ge=4096, le=10_485_760)
 
     # Phase 2: Sandbox, approvals, execution timeouts, and MCP defaults
     sandbox_dir: str = "sandbox_data"
