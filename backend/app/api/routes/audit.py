@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db_session
 from app.models.enums import AuditEventType, PolicyDecision, VerificationStatus
-from app.schemas.audit import AuditEventResponse
+from app.schemas.audit import AuditEventResponse, AuditIntegrityResponse
 from app.schemas.common import PaginatedResponse
 from app.security.authorization import require_admin
 from app.services.audit_service import AuditService
@@ -61,6 +61,20 @@ async def list_audit_events(
         page=page,
         page_size=page_size,
     )
+
+
+@router.get(
+    "/integrity",
+    response_model=AuditIntegrityResponse,
+    summary="Verify cryptographic digest integrity of audit events",
+)
+async def verify_audit_integrity(
+    limit: int = Query(default=500, ge=1, le=5000),
+    session: AsyncSession = Depends(get_db_session),
+) -> AuditIntegrityResponse:
+    """Recompute SHA-256 record digests across stored audit logs to detect tampering."""
+    result = await _audit_service.verify_integrity(session, limit=limit)
+    return AuditIntegrityResponse.model_validate(result)
 
 
 @router.get(

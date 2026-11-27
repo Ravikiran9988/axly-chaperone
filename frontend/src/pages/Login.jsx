@@ -40,6 +40,10 @@ export function Login() {
   const onSubmit = async (values) => {
     setAuthError(null);
     clearNotice();
+    if (authMode !== 'session_cookie' && values.adminKey?.trim().startsWith('axly_ag_')) {
+      setAuthError('Agent API keys (axly_ag_...) cannot be used to access the administrative control plane.');
+      return;
+    }
     setSubmitting(true);
     try {
       await login({

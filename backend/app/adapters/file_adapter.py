@@ -34,6 +34,11 @@ DEFAULT_SECRETS_CONTENT = (
 )
 
 
+def _is_reparse_or_link(path: Path | str) -> bool:
+    is_junction_fn = getattr(os.path, "isjunction", None)
+    return os.path.islink(path) or (bool(is_junction_fn(path)) if is_junction_fn else False)
+
+
 def ensure_demo_sandbox(sandbox_root: Path) -> Path:
     """Create the dedicated sandbox directory and seed Phase 2 demo sample files."""
     docs_dir = sandbox_root / "documents"
@@ -47,15 +52,15 @@ def ensure_demo_sandbox(sandbox_root: Path) -> Path:
         private_dir / "secrets.txt": DEFAULT_SECRETS_CONTENT,
     }
     for path, content in samples.items():
-        if not path.exists() and not os.path.islink(path):
+        if not path.exists() and not _is_reparse_or_link(path):
             path.write_text(content, encoding="utf-8")
     return sandbox_root
 
 
 def resolve_sandbox_target(sandbox_root: Path, relative_path: str) -> Path:
     """Resolve a sandbox-relative POSIX path while strictly blocking symlinks and escapes."""
-    if os.path.islink(sandbox_root):
-        raise AdapterSecurityError("Sandbox root cannot be a symbolic link.")
+    if _is_reparse_or_link(sandbox_root):
+        raise AdapterSecurityError("Sandbox root cannot be a symbolic link or junction.")
     sandbox_root.mkdir(parents=True, exist_ok=True)
     resolved_root = sandbox_root.resolve(strict=True)
 
@@ -63,8 +68,10 @@ def resolve_sandbox_target(sandbox_root: Path, relative_path: str) -> Path:
     current = sandbox_root
     for segment in canonical_rel.split("/"):
         current = current / segment
-        if os.path.islink(current):
-            raise AdapterSecurityError("Symbolic link traversal is prohibited inside sandbox.")
+        if _is_reparse_or_link(current):
+            raise AdapterSecurityError(
+                "Symbolic link or junction traversal is prohibited inside sandbox."
+            )
 
     resolved_target = current.resolve(strict=False)
     if not resolved_target.is_relative_to(resolved_root) or resolved_target == resolved_root:
@@ -185,7 +192,7 @@ class FileToolAdapter(BaseToolAdapter):
             )
         entries: list[dict[str, Any]] = []
         for entry in sorted(target.iterdir(), key=lambda p: p.name):
-            if entry.is_symlink():
+            if _is_reparse_or_link(entry):
                 continue
             entries.append(
                 {

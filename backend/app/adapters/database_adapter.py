@@ -26,13 +26,48 @@ _TABLE_SPECS: dict[str, dict[str, Any]] = {
         "model": DemoInvoice,
         "columns": frozenset({"invoice_number", "vendor_name", "amount_inr", "status", "notes"}),
         "required_on_create": frozenset({"invoice_number", "vendor_name", "amount_inr"}),
+        "string_max_lengths": {
+            "invoice_number": 64,
+            "vendor_name": 128,
+            "status": 32,
+            "notes": 2000,
+        },
+        "nullable_columns": frozenset({"notes"}),
     },
     "demo_tasks": {
         "model": DemoTask,
         "columns": frozenset({"title", "owner", "status"}),
         "required_on_create": frozenset({"title", "owner"}),
+        "string_max_lengths": {
+            "title": 200,
+            "owner": 128,
+            "status": 32,
+        },
+        "nullable_columns": frozenset(),
     },
 }
+
+
+def _validate_column_value(spec: dict[str, Any], col: str, val: Any) -> Any:
+    if col == "amount_inr":
+        if isinstance(val, bool) or not isinstance(val, int) or val < 0 or val > 2_147_483_647:
+            raise AdapterValidationError(
+                "'amount_inr' must be a non-negative 32-bit integer (booleans rejected)."
+            )
+        return val
+    if val is None:
+        if col not in spec["nullable_columns"]:
+            raise AdapterValidationError(f"Column '{col}' cannot be null.")
+        return None
+    if not isinstance(val, str):
+        raise AdapterValidationError(f"Column '{col}' must be a string.")
+    cleaned = val.strip()
+    max_len = spec["string_max_lengths"][col]
+    if not cleaned and col not in spec["nullable_columns"]:
+        raise AdapterValidationError(f"Column '{col}' cannot be empty.")
+    if len(cleaned) > max_len:
+        raise AdapterValidationError(f"Column '{col}' exceeds maximum length of {max_len}.")
+    return cleaned if cleaned or col not in spec["nullable_columns"] else None
 
 
 class DatabaseToolAdapter(BaseToolAdapter):
@@ -65,9 +100,9 @@ class DatabaseToolAdapter(BaseToolAdapter):
     ) -> dict[str, Any]:
         if action not in self.supported_actions:
             raise AdapterValidationError(f"Unsupported database_tool action '{action}'.")
-        for sql_key in _RAW_SQL_KEYS:
-            if sql_key in arguments:
-                raise AdapterSecurityError(f"Arbitrary SQL parameter '{sql_key}' is prohibited.")
+        for arg_key in arguments:
+            if str(arg_key).lower() in _RAW_SQL_KEYS:
+                raise AdapterSecurityError(f"Arbitrary SQL parameter '{arg_key}' is prohibited.")
 
         spec = _TABLE_SPECS[resource]
         allowed_cols: frozenset[str] = spec["columns"]
@@ -76,22 +111,24 @@ class DatabaseToolAdapter(BaseToolAdapter):
             filters = arguments.get("filters", {})
             if not isinstance(filters, dict):
                 raise AdapterValidationError("'filters' must be a JSON object.")
-            for col in filters:
+            for col, val in filters.items():
                 if col not in allowed_cols:
                     raise AdapterValidationError(
                         f"Column '{col}' is not permitted for '{resource}'."
                     )
+                _validate_column_value(spec, col, val)
             limit = arguments.get("limit", 20)
-            if not isinstance(limit, int) or limit < 1 or limit > 50:
+            if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1 or limit > 50:
                 raise AdapterValidationError("'limit' must be an integer between 1 and 50.")
             return {"table": resource, "filters": filters, "limit": limit}
 
         data = arguments.get("data")
         if not isinstance(data, dict) or not data:
             raise AdapterValidationError(f"Action '{action}' requires a non-empty 'data' object.")
-        for col in data:
+        for col, val in data.items():
             if col not in allowed_cols:
                 raise AdapterValidationError(f"Column '{col}' is not permitted for '{resource}'.")
+            _validate_column_value(spec, col, val)
 
         if action == "create":
             missing = spec["required_on_create"] - set(data.keys())

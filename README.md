@@ -2,194 +2,98 @@
 
 **Safe autonomy. Human control.**
 
-**AXLY Chaperone** is an AI Agent Security & Governance Gateway that mediates every tool request made by AI agents through authentication, deterministic policy evaluation, human approval workflows, controlled tool adapters, independent outcome verification, and append-only audit logging.
-
-> **Current Implementation Status (Phase 1 + Phase 2 + Phase 3):**
-> - **Phase 1:** Core gateway, agent auth, tool registry, deterministic policy engine, resource validation, and append-only audit log (`POST /api/v1/gateway/evaluate`).
-> - **Phase 2:** Human approval workflow, controlled tool adapters (`file_tool`, `email_tool`, `database_tool`), secure execution (`POST /api/v1/gateway/execute`), independent state verification, MCP integration (`mcp` SDK), and prompt-injection security demonstration.
-> - **Phase 3:** React + Vite + Tailwind CSS governance console (`frontend/`) connected to live Chaperone APIs.
+**AXLY Chaperone** is an AI Agent Security & Governance Gateway that mediates every tool request made by AI agents or MCP clients through authentication, deterministic least-privilege policy evaluation, human-in-the-loop approvals, controlled execution adapters, independent outcome verification, and tamper-evident append-only audit logging.
 
 ---
 
-## Architecture Overview
+## Problem Statement
 
-```text
-backend/
-  app/
-    main.py                     # FastAPI factory, middleware wiring, exception handlers
-    cli.py                      # Bootstrap CLI (admin key generation)
-    core/                       # Settings, async SQLAlchemy 2.x, JSON logging + redaction, PBKDF2 crypto, errors
-    models/                     # Agent, Tool, Policy, AuditEvent, MockEmailRecord, DemoInvoice, DemoTask, ExecutionIdempotency
-    schemas/                    # Strict Pydantic v2 schemas (extra="forbid")
-    security/                   # Auth separation, resource normalization/validation, pure deterministic PolicyEngine
-    approvals/                  # ApprovalRequest ORM, schemas, atomic ApprovalService
-    adapters/
-      base.py                   # BaseToolAdapter interface
-      file_adapter.py           # Sandboxed FileToolAdapter (path/symlink/size checks)
-      email_adapter.py          # Local Mock EmailToolAdapter (no external SMTP)
-      database_adapter.py       # Parameterized DatabaseToolAdapter restricted to demo tables
-      mcp/                      # Official Python MCP SDK server (stdio/memory) & client
-    execution/                  # AdapterRegistry, ExecutionDispatcher (timeouts, validation)
-    verification/               # VerificationRecord ORM, independent VerificationEngine
-    demo/                       # Prompt-injection & human-approval end-to-end demonstration
-    services/                   # Agent, Tool, Policy, Gateway, and append-only Audit services
-    middleware/                 # Correlation ID, security headers, sliding-window rate limiter
-    api/routes/                 # /health, /ready, /api/v1/{agents,tools,policies,approvals,audit-events,gateway}
-    tests/                      # Pytest suite covering Phase 1 & Phase 2
-  alembic/                      # Migrations 0001_initial_schema -> 0002_phase2_governance_execution
+AI agents connected to filesystems, email, and databases often run with broad credentials and unmediated tool execution. Prompt injection inside untrusted documents, parameter smuggling, or buggy tool handlers can cause unauthorized file reads, external data exfiltration, or unverified mutations. AXLY Chaperone enforces a strict runtime security boundary: **every agent tool request must pass through Chaperone before execution**.
+
+---
+
+## Key Features
+
+- **Agent & Admin Credential Separation:** PBKDF2-HMAC-SHA256 salted agent API keys (`X-Agent-Key`), one-time key issuance, constant-time admin key checks (`X-Admin-Key`), and strictly in-memory browser session credentials.
+- **Deterministic Policy Engine:** Pure Python authorization (`ALLOW`, `DENY`, `REQUIRE_APPROVAL`) with default-deny posture, explicit `DENY` hard-blocking, fail-safe approval tie-breaking, and anti-traversal/anti-smuggling validation.
+- **Human-in-the-Loop Approval Center:** SHA-256 payload-bound approval requests (`PENDING`, `APPROVED`, `REJECTED`, `EXPIRED`, `EXECUTED`, `FAILED`), atomic Compare-And-Swap single-execution guarantees, TTL expiration auditing, and pre-execution policy re-evaluation.
+- **Controlled Adapters & Official MCP Server:** Sandboxed `file_tool`, local mock `email_tool`, and parameterized demo-table `database_tool` exposed over REST and the official Python `mcp` SDK with zero direct adapter bypass.
+- **Independent Outcome Verification:** `VerificationEngine` inspects sandbox files (SHA-256 & byte length), `mock_emails`, and database rows directly rather than trusting adapter return flags.
+- **Tamper-Evident Audit Trail & Governance UI:** Append-only `audit_events` protected by HTTP read-only routes, SQLAlchemy ORM mutation/deletion blocks, SHA-256 `record_hash` integrity digests, and a dark-first React + Tailwind console.
+- **Reproducible Security Benchmark:** 64 deterministic scenarios (32 malicious/unauthorized + 32 legitimate) measuring blocking accuracy, false blocks, verification accuracy, and separated policy/adapter latencies.
+
+---
+
+## Architecture
+
+```mermaid
+flowchart LR
+    Agent["AI Agent / MCP Client"] -->|"X-Agent-Key / MCP"| GW["FastAPI Gateway + Security Middleware"]
+    GW --> Auth["AgentAuth (PBKDF2-HMAC-SHA256)"]
+    Auth -->|"Invalid / Disabled"| Audit[("Append-Only audit_events + record_hash")]
+    Auth --> Policy["Deterministic PolicyEngine"]
+    Policy -->|"DENY"| Audit
+    Policy -->|"REQUIRE_APPROVAL"| Approvals[("approval_requests (SHA-256 bound)")]
+    Admin["React Governance Console (X-Admin-Key)"] -->|"Approve / Reject"| Approvals
+    Policy -->|"ALLOW"| Dispatch["ExecutionDispatcher (Timeouts)"]
+    Approvals -->|"Approved + Re-evaluated + CAS"| Dispatch
+    Dispatch --> Adapters["file_tool / email_tool / database_tool"]
+    Adapters --> Verify["Independent VerificationEngine"]
+    Verify --> Audit
 ```
 
----
-
-## Security Model & Policy Precedence
-
-Every tool evaluation and execution request is evaluated deterministically (`app/security/policy_engine.py`) without LLM involvement:
-
-1. **Authentication Gate:** Missing or invalid `X-Agent-Key` -> `401` and audited (`DENY`).
-2. **Agent Status Gate:** Disabled agent (`status = "disabled"`) -> `403` and audited (`DENY`).
-3. **Tool Gate:** Unregistered or disabled tool -> `DENY` before execution.
-4. **Resource & Argument Validation Gate:** Rejects path traversal (`..`, `.`, `\`, `%2e`, `%2f`, `%5c`, null bytes, drive prefixes, leading `/`), symlink escapes, raw SQL keys, unauthorized DB tables, and mismatches between `resource` and `arguments` (including nested objects).
-5. **Default Deny:** Zero matching enabled policies -> `DENY`.
-6. **Explicit Deny Hard-Block:** Any matching `deny` policy overrides `allow` and `require_approval` regardless of numeric priority.
-7. **Priority Precedence (`allow` vs `require_approval`):** Highest `priority` wins; on ties, `REQUIRE_APPROVAL` overrides `ALLOW` (fail-safe human control).
+### Technology Stack
+- **Backend:** Python 3.12, FastAPI, SQLAlchemy 2.x (async), Alembic, PostgreSQL (`asyncpg`), `mcp` SDK, Pydantic v2, Uvicorn.
+- **Frontend:** React 18, JavaScript, Vite, Tailwind CSS, React Router v7, TanStack Query, Axios, Recharts, React Hook Form, Zod v4, Lucide React.
+- **Testing & QA:** Pytest + `pytest-asyncio` + `httpx` + `aiosqlite`, Ruff (lint + Bandit `S` rules + format), Vitest + React Testing Library + `npm audit`.
 
 ---
 
-## Human Approval Workflow (Phase 2)
+## Security Architecture & Policy Behavior
 
-Sensitive actions matching `REQUIRE_APPROVAL` enter a transactional approval lifecycle (`approval_requests`):
+1. **Middleware & Hardening:** `CorrelationIdMiddleware`, `SecurityHeadersMiddleware` (CSP, `X-Frame-Options: DENY`, `nosniff`, `no-referrer`, `Permissions-Policy`), bounded `RateLimitMiddleware` (10,000-bucket eviction cap), and `RequestSizeLimitMiddleware` (`413 PAYLOAD_TOO_LARGE`). Production mode disables `/docs`, `/redoc`, and `/openapi.json`.
+2. **Resource & Argument Validation:** Rejects `..`, `.`, `\`, `%2e`/`%2f`/`%5c`/`%00`/`%25`, absolute/drive paths, NTFS ADS (`:`), Windows reserved device names (`CON`, `NUL`, etc.), Unicode bidirectional overrides, symlinks, NTFS directory junctions, and case-insensitive argument smuggling (`Path`, `BCC`, `SQL`, etc.).
+3. **Policy Precedence:**
+   - Unauthenticated / disabled agents and unregistered / disabled tools are always `DENY`.
+   - Zero matching policies -> **Default `DENY`**.
+   - Any matching `DENY` rule **hard-blocks** regardless of numeric priority (approvals can never override `DENY`).
+   - Between `ALLOW` and `REQUIRE_APPROVAL`, highest numeric `priority` wins; ties favor `REQUIRE_APPROVAL`.
+4. **Approval & Verification:** Approved actions are locked to `(agent_id, tool_name, action, resource, sanitized_arguments)` via SHA-256 `payload_hash`, claimed atomically via `execution_claimed_at`, re-evaluated against active policies immediately before execution, and independently verified afterward (`VERIFIED`, `FAILED`, `INCONCLUSIVE`, `NOT_APPLICABLE`).
 
-- **Supported States:** `PENDING`, `APPROVED`, `REJECTED`, `EXPIRED`, `EXECUTED`, `FAILED`.
-- **Payload Binding:** `ApprovalService` hashes `(agent_id, tool_name, action, resource, sanitized_arguments)` with SHA-256 (`payload_hash`). Any post-approval modification is blocked (`403 PAYLOAD_TAMPERING_DETECTED`).
-- **Concurrency & Replay Protection:** Approvals use atomic conditional `UPDATE` transitions and an `execution_claimed_at` Compare-And-Swap guard so concurrent or replayed requests cannot execute an action twice.
-- **Expiration & Re-evaluation:** Expired pending requests transition to `EXPIRED` (`409`). Immediately prior to execution, Chaperone re-evaluates agent status, tool enabled status, and active policies so newly added `DENY` policies block execution.
-- **Admin Endpoints (`X-Admin-Key`):**
-  - `GET /api/v1/approvals`
-  - `GET /api/v1/approvals/{approval_id}`
-  - `POST /api/v1/approvals/{approval_id}/approve` (supports `{"comment": "...", "execute_now": true|false}`)
-  - `POST /api/v1/approvals/{approval_id}/reject`
-
----
-
-## Controlled Mock Tools & Independent Verification
-
-Chaperone exposes three controlled mock tools through `ExecutionDispatcher` with configured timeouts (`CHAPERONE_TOOL_EXECUTION_TIMEOUT_SECONDS`) and payload limits:
-
-1. **`file_tool` (`filesystem`):** `read`, `write`, `list` restricted strictly to `CHAPERONE_SANDBOX_DIR` (`sandbox_data/`). Seeded sample files include `documents/invoice.txt`, `documents/project_notes.txt`, and `private/secrets.txt` (inaccessible to the demo agent). Enforces path normalization, file size limits, and symlink-segment blocking.
-2. **`email_tool` (`communication`):** `create_draft`, `send`, `read` backed by `mock_emails`. Never connects to any external SMTP server.
-3. **`database_tool` (`database`):** `read`, `create`, `update` using structured, column-allowlisted parameterized ORM queries restricted strictly to `demo_invoices` and `demo_tasks`. Arbitrary SQL keys are rejected.
-
-### Independent Verification Engine
-After execution, `VerificationEngine` (`app/verification/engine.py`) does **not** trust adapter return flags. It independently inspects actual system state:
-- **`file_tool`:** Re-verifies sandbox file existence, size, and SHA-256 hash on disk (without storing secret file content in audit or verification records).
-- **`email_tool`:** Queries `mock_emails` directly to verify recipient, subject, and `status`.
-- **`database_tool`:** Queries the target demo table row by ID to verify persisted fields.
-- **Statuses:** `VERIFIED`, `FAILED`, `INCONCLUSIVE`, `NOT_APPLICABLE`.
+See [docs/architecture.md](docs/architecture.md), [docs/security-model.md](docs/security-model.md), [docs/policy-engine.md](docs/policy-engine.md), [docs/mcp-integration.md](docs/mcp-integration.md), and [docs/hackathon-submission.md](docs/hackathon-submission.md) for deep dives.
 
 ---
 
-## Example Gateway Execution Requests & Responses
+## Security Benchmark (Measured Results)
 
-`POST /api/v1/gateway/execute` (Header: `X-Agent-Key: <agent_key>`, optional `Idempotency-Key`):
-
-**Approval Required (`202 Accepted`):**
-```json
-{
-  "correlation_id": "demo-finance-email-004",
-  "decision": "REQUIRE_APPROVAL",
-  "status": "PENDING",
-  "message": "Administrator approval required",
-  "tool_name": "email_tool",
-  "action": "send",
-  "resource": "finance@company.com",
-  "agent_id": "...",
-  "approval_id": "..."
-}
-```
-
-**Denied (`403 Forbidden`):**
-```json
-{
-  "correlation_id": "demo-inject-private-002",
-  "decision": "DENY",
-  "status": "BLOCKED",
-  "message": "Denied by explicit policy 'demo-deny-private-files' (priority 500)",
-  "tool_name": "file_tool",
-  "action": "read",
-  "resource": "private/secrets.txt",
-  "agent_id": "..."
-}
-```
-
-**Executed & Verified (`200 OK`):**
-```json
-{
-  "correlation_id": "demo-read-invoice-001",
-  "decision": "ALLOW",
-  "status": "EXECUTED",
-  "message": "Read 'documents/invoice.txt' (164 bytes).",
-  "tool_name": "file_tool",
-  "action": "read",
-  "resource": "documents/invoice.txt",
-  "agent_id": "...",
-  "output": { "path": "documents/invoice.txt", "content": "...", "size_bytes": 164 },
-  "verification": {
-    "verification_id": "...",
-    "status": "VERIFIED",
-    "method": "sandbox_file_presence_check",
-    "message": "Read target independently confirmed inside sandbox."
-  }
-}
-```
-
----
-
-## MCP Integration
-
-Chaperone provides an MCP-compatible server built on the official Python `mcp` SDK (`app/adapters/mcp/server.py`, `client.py`, `schemas.py`):
-- Registers `file_tool`, `email_tool`, and `database_tool` with strict Pydantic v2 input schemas.
-- Routes every `call_tool` invocation through `authenticate_agent_key` and `GatewayService.execute_request` — there is **no** direct adapter bypass.
-- Propagates `correlation_id` end-to-end and returns sanitized structured MCP errors without leaking secrets.
-
-### Running the MCP Server (`stdio` transport)
+Run the reproducible 64-scenario suite (`backend/app/benchmark/runner.py`) inside an isolated database and sandbox:
 
 ```powershell
 # Windows PowerShell (from backend/)
-$env:CHAPERONE_DATABASE_URL="postgresql+asyncpg://postgres:YOUR_PASSWORD@localhost:5432/axly_chaperone"
-$env:CHAPERONE_MCP_AGENT_KEY="axly_ag_..."
-.\.venv\Scripts\python.exe -m app.adapters.mcp.server
+.\.venv\Scripts\python.exe -m app.benchmark.runner
 ```
 
-```bash
-# Linux / macOS (from backend/)
-export CHAPERONE_DATABASE_URL="postgresql+asyncpg://postgres:YOUR_PASSWORD@localhost:5432/axly_chaperone"
-export CHAPERONE_MCP_AGENT_KEY="axly_ag_..."
-python -m app.adapters.mcp.server
-```
+Measured results from `benchmarks/results/latest_benchmark.json` (`2026-11-27T16:16:20Z`, Windows 10, Python 3.12.13, 8 CPU cores, isolated SQLite benchmark instance, rate limiter disabled for throughput):
+
+| Metric | Measured Result | Ratio / Samples |
+|---|---|---|
+| Total Scenarios | **64** (32 malicious / 32 legitimate) | **64 passed / 0 failed / 0 skipped** |
+| Security Blocking Rate | **100.00%** | 32 / 32 unauthorized prevented |
+| Legitimate Task Success Rate | **100.00%** | 32 / 32 legitimate succeeded |
+| False-Block Rate | **0.00%** | 0 / 32 |
+| Policy Decision Accuracy | **100.00%** | 50 / 50 |
+| Outcome Verification Accuracy | **100.00%** | 26 / 26 |
+| `PolicyEngine.evaluate()` Latency | **0.200 ms** p50 / **0.347 ms** p95 | max `0.380 ms` (49 samples) |
+| Controlled Tool Adapter Latency | **14.761 ms** p50 / **32.495 ms** p95 | max `45.980 ms` (21 samples) |
+| Gateway Total Request Latency | **139.067 ms** p50 / **307.366 ms** p95 | max `339.008 ms` (64 samples, incl. PBKDF2 auth) |
+
+Full methodology and per-scenario tables: [docs/benchmark-methodology.md](docs/benchmark-methodology.md) and [benchmarks/results/latest_benchmark.md](benchmarks/results/latest_benchmark.md).
 
 ---
 
-## Prompt-Injection Security Demo
+## Installation & Local Development (Windows PowerShell)
 
-Run the self-contained Phase 2 demonstration (exercises MCP client -> MCP server -> Gateway -> Policy Engine -> Approval Workflow -> Adapters -> Verification -> Chronological Audit):
-
-```powershell
-# Windows PowerShell (from backend/)
-.\.venv\Scripts\python.exe -m app.demo.prompt_injection_demo
-```
-
-```bash
-# Linux / macOS (from backend/)
-python -m app.demo.prompt_injection_demo
-```
-
-The demo reads `documents/invoice.txt`, extracts `INV-2026-001` (`45000 INR`), blocks injected attempts to read `private/secrets.txt` and exfiltrate to `attacker@example.com`, routes the safe summary email to `finance@company.com` through human approval, independently verifies delivery in `mock_emails`, and confirms zero leaked secrets in the chronological audit log.
-
----
-
-## Local Development, Migrations, and Testing
-
-### Setup (Windows PowerShell)
+### Backend
 ```powershell
 cd backend
 python -m venv .venv
@@ -197,142 +101,76 @@ python -m venv .venv
 pip install -r requirements-dev.txt
 .\.venv\Scripts\python.exe -m app.cli generate-admin-key
 Copy-Item .env.example .env
-# Edit .env with PostgreSQL CHAPERONE_DATABASE_URL and CHAPERONE_ADMIN_API_KEY
+# Edit backend/.env with PostgreSQL CHAPERONE_DATABASE_URL, CHAPERONE_ADMIN_API_KEY,
+# and CHAPERONE_CORS_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173"]
 .\.venv\Scripts\alembic.exe upgrade head
 .\.venv\Scripts\uvicorn.exe app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-### Setup (Linux / macOS)
-```bash
-cd backend
-python3.12 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements-dev.txt
-python -m app.cli generate-admin-key
-cp .env.example .env
-alembic upgrade head
-uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
-```
-
-### Running Tests & Lint Checks
+### Frontend
 ```powershell
-# Windows PowerShell (from backend/)
-.\.venv\Scripts\pytest.exe -v
-.\.venv\Scripts\ruff.exe check .
-.\.venv\Scripts\ruff.exe format --check .
-```
-
-*(Tests default to an isolated temporary `sqlite+aiosqlite` database and temp sandbox directory; set `CHAPERONE_TEST_DATABASE_URL` to run against an isolated PostgreSQL test database.)*
-
----
-
-## Frontend Console (Phase 3)
-
-The **AXLY Chaperone** administrative web console lives in `frontend/` and is built with React 18, JavaScript, Vite, Tailwind CSS, React Router, TanStack Query, Axios, Recharts, React Hook Form, Zod, and Lucide React.
-
-### Frontend Architecture
-
-```text
-frontend/
-  .env.example                  # Frontend environment configuration template
-  vite.config.js                # Vite dev server, proxy (/api, /health, /ready), and Vitest config
-  src/
-    app/                        # App shell root, providers (Theme, Query, Toast, Auth), and router
-    components/
-      layout/                   # AppShell, Sidebar, Topbar, ProtectedRoute, BrandLogo
-      ui/                       # Button, Card, Badge, StatusBadge, Modal, Drawer, ConfirmDialog, etc.
-      charts/                   # Recharts widgets backed strictly by live API responses
-      tables/                   # DataTable with loading, error, and empty states
-      forms/                    # AgentFormModal, ApiKeyRevealModal, ToolFormModal, PolicyFormModal
-      feedback/                 # ErrorBoundary, ToastContainer
-    pages/                      # Login, Overview, Agents, AgentDetails, Tools, Policies, Approvals, SecurityEvents, AuditLogs, Settings
-    services/                   # Centralized Axios client (api.js) + domain endpoint modules
-    hooks/                      # TanStack Query hooks and dashboard aggregation hook
-    context/                    # AuthContext (in-memory key session), ThemeContext, ToastContext
-    utils/                      # Formatters, defensive secret redaction, Zod schemas, tool adapter capability metadata
-    tests/                      # Vitest + React Testing Library test suites
-```
-
-### Installation & Environment Variables
-
-```powershell
-# From repository root
 cd frontend
 npm install
 Copy-Item .env.example .env
-```
-
-```bash
-# Linux / macOS
-cd frontend
-npm install
-cp .env.example .env
-```
-
-Key variables in `frontend/.env.example`:
-- `VITE_API_BASE_URL` — Backend API base URL (e.g. `http://127.0.0.1:8000`, or leave blank `""` in local dev to route through Vite's proxy).
-- `VITE_API_TIMEOUT_MS` — Request timeout in milliseconds (default: `15000`).
-- `VITE_AUTH_MODE` — `admin_key` (current backend `X-Admin-Key` header verification) or `session_cookie` (Phase 4 HTTP-only cookie integration contract).
-- `VITE_PROXY_TARGET` — Backend URL used by Vite's dev proxy when `VITE_API_BASE_URL` is blank (`http://127.0.0.1:8000`).
-
-> **Security:** Never place `CHAPERONE_ADMIN_API_KEY`, agent API keys (`axly_ag_*`), or secrets in `frontend/.env` or `VITE_*` variables.
-
-### Backend Connection & CORS Configuration
-
-When running the frontend directly against `http://127.0.0.1:8000` (non-proxied cross-origin mode with `VITE_API_BASE_URL=http://127.0.0.1:8000`), configure `backend/.env`:
-
-```env
-CHAPERONE_CORS_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173"]
-CHAPERONE_CORS_ALLOW_METHODS=["GET","POST","PATCH"]
-CHAPERONE_CORS_ALLOW_HEADERS=["Content-Type","X-Admin-Key","X-Agent-Key","X-Correlation-ID","X-Admin-Actor"]
-```
-
-*(Note: `X-Admin-Actor` is optional in the UI login form and only sent if specified; including it in `CHAPERONE_CORS_ALLOW_HEADERS` enables custom reviewer actor attribution cross-origin.)*
-
-### Authentication Integration
-
-Because the Phase 1/2 backend uses a single administrative secret (`X-Admin-Key` verified against `CHAPERONE_ADMIN_API_KEY`) without a session/cookie login endpoint:
-- The Login page validates the entered Admin API Key (and optional `X-Admin-Actor`) live against `GET /api/v1/agents?page=1&page_size=1`.
-- The credential is held **strictly in JavaScript memory** (never written to `localStorage` or `sessionStorage`) and automatically cleared on logout, `401`/`ADMIN_NOT_CONFIGURED` API responses, tab reload, or 30 minutes of inactivity.
-- Agent API keys issued via `POST /api/v1/agents` are displayed **once** in `ApiKeyRevealModal` and wiped from memory upon dismissal.
-
-### Development, Test & Build Commands
-
-Run backend and frontend together in two terminals:
-
-```powershell
-# Terminal 1 — Backend (from backend/)
-.\.venv\Scripts\uvicorn.exe app.main:app --host 127.0.0.1 --port 8000 --reload
-
-# Terminal 2 — Frontend (from frontend/)
 npm run dev
 ```
 
-Frontend verification commands (from `frontend/`):
-
-```powershell
-npm test         # Run Vitest + React Testing Library suite
-npm run build    # Create production bundle in frontend/dist/
-npm run preview  # Preview production build locally
-```
-
-### Documented Backend Endpoint Gaps
-
-The frontend integrates strictly with existing backend endpoints without fabricating data or inventing APIs. The following backend gaps are documented for Phase 4:
-
-1. **Admin Session Authentication (`/api/v1/auth/login`, `/logout`, `/me`):** No dedicated login or HTTP-only cookie session endpoint exists yet (`VITE_AUTH_MODE=session_cookie` is prepared as the frontend contract).
-2. **Overview Metrics / Aggregation Endpoint (`/api/v1/metrics` or `/stats`):** Overview KPIs and charts derive from `PaginatedResponse.total` counts and fetched audit/approval pages (`page_size=100`). When total events exceed 100, charts explicitly indicate the sampled window.
-3. **Runtime Tool Capabilities Endpoint:** `ToolResponse` does not expose `supported_actions` or whether an execution adapter exists in `AdapterRegistry`. The Tools UI clearly distinguishes the built-in Phase 2 adapters (`file_tool`, `email_tool`, `database_tool`) from policy-evaluation-only tools.
-4. **Policy & Agent Deletion / Key Rotation:** `DELETE /api/v1/policies/{id}`, `DELETE /api/v1/agents/{id}`, and `POST /api/v1/agents/{id}/rotate-key` do not exist; the UI exposes only backend-supported enable/disable `PATCH` toggles.
-5. **Audit Date-Range & Text-Search Query Params:** `GET /api/v1/audit-events` supports exact `correlation_id`, `agent_id`, `tool_name`, `decision`, `event_type`, `verification_status`, `approval_id`, and `order`, but not `start_time`/`end_time` or full-text `q`. Time-range and keyword filters operate client-side on the loaded page and state that scope explicitly.
-6. **MCP & Non-Secret Runtime Telemetry:** No HTTP endpoint exposes MCP `stdio` server health or non-secret gateway settings.
+Open `http://localhost:5173` and authenticate with your `CHAPERONE_ADMIN_API_KEY`.
 
 ---
 
-## Known Security Limitations
+## End-to-End Demo & Testing Commands
 
-1. **Single Bootstrap Admin Key:** Phase 2 still uses `CHAPERONE_ADMIN_API_KEY` rather than multi-admin RBAC/OIDC user identities.
-2. **In-Process Rate Limiter:** `RateLimitMiddleware` uses process-local memory; multi-worker deployments require Redis.
-3. **Mock Providers Only:** `email_tool` and `database_tool` operate exclusively against local database tables; no production SMTP or arbitrary external DB connectors are enabled.
-4. **Symlink Privileges on Windows:** OS-level symlink creation without Developer Mode may require elevation; `FileToolAdapter` defends against symlinks whenever present via per-segment `islink`/`resolve` checks.
-5. **App-Layer Audit Immutability:** Production PostgreSQL roles should additionally revoke `UPDATE` and `DELETE` privileges on `audit_events` and `verification_records`.
+### 4-Scenario Hackathon Demo
+```powershell
+# Isolated self-contained demo (Scenarios A, B, C, D)
+cd backend
+.\.venv\Scripts\python.exe -m app.demo.hackathon_demo
+
+# Seed live database (leaves Scenario C PENDING for Approval Center UI)
+.\.venv\Scripts\python.exe -m app.demo.hackathon_demo --seed-live --reset
+```
+See the 3-minute presenter script in [docs/demo-guide.md](docs/demo-guide.md).
+
+### Test & Build Suites
+```powershell
+# Backend tests + lint + format (from backend/)
+.\.venv\Scripts\pytest.exe -v
+.\.venv\Scripts\ruff.exe check .
+.\.venv\Scripts\ruff.exe format --check .
+
+# Frontend tests + security audit + production build (from frontend/)
+npm test
+npm audit --omit=dev
+npm run build
+```
+
+---
+
+## API Overview
+
+- **Operational Probes:** `GET /health`, `GET /ready`
+- **Admin Control Plane (`X-Admin-Key`):**
+  - Agents: `POST /api/v1/agents`, `GET /api/v1/agents`, `GET /api/v1/agents/{id}`, `PATCH /api/v1/agents/{id}/status`
+  - Tools: `POST /api/v1/tools`, `GET /api/v1/tools`, `GET /api/v1/tools/{name}`, `PATCH /api/v1/tools/{name}`
+  - Policies: `POST /api/v1/policies`, `GET /api/v1/policies`, `GET /api/v1/policies/{id}`, `PATCH /api/v1/policies/{id}`
+  - Approvals: `GET /api/v1/approvals`, `GET /api/v1/approvals/{id}`, `POST /api/v1/approvals/{id}/approve`, `POST /api/v1/approvals/{id}/reject`
+  - Audit: `GET /api/v1/audit-events`, `GET /api/v1/audit-events/integrity`, `GET /api/v1/audit-events/{id}`
+- **Agent Gateway (`X-Agent-Key`):** `POST /api/v1/gateway/evaluate`, `POST /api/v1/gateway/execute`
+
+---
+
+## Deployment
+
+Production environment templates (`backend/.env.production.example`, `frontend/.env.production.example`), startup scripts (`deploy/start_backend.ps1`, `deploy/start_backend.sh`), Nginx SPA/proxy config (`deploy/nginx.conf`), and optional Docker Compose (`deploy/docker-compose.yml`) are documented in [docs/deployment.md](docs/deployment.md).
+
+---
+
+## Known Limitations
+
+1. **Single Bootstrap Admin Key:** Uses `CHAPERONE_ADMIN_API_KEY` rather than multi-admin OIDC/RBAC accounts (`VITE_AUTH_MODE=session_cookie` is prepared on the frontend).
+2. **In-Memory Rate Limiter:** Bounded process-local sliding window (`max_buckets=10000`); multi-worker deployments require Redis or an external gateway rate limiter.
+3. **Controlled Mock/Sandbox Providers:** `email_tool` and `database_tool` operate strictly on local tables (`mock_emails`, `demo_invoices`, `demo_tasks`) rather than external SMTP or arbitrary SQL hosts.
+4. **Capability vs Semantic Defense:** Policy enforcement stops unauthorized tool actions even after prompt injection, but cannot sanitize semantic misuse within an explicitly permitted action/resource scope.
+5. **Frontend Console Integration Gaps:** No dedicated `/api/v1/metrics` endpoint, audit date-range query params, policy/agent deletion endpoints, or HTTP MCP status endpoint exist in the current API; the UI computes aggregates transparently from real API responses and disables unsupported actions.
+6. **DB-Layer Audit Privileges:** Production PostgreSQL roles should additionally `REVOKE UPDATE, DELETE` on `audit_events` and `verification_records` beyond the SQLAlchemy ORM immutability guards.

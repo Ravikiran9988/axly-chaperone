@@ -7,8 +7,18 @@ import re
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
-_CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]")
 _WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:")
+_WINDOWS_RESERVED_NAMES = frozenset(
+    {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        *(f"COM{i}" for i in range(1, 10)),
+        *(f"LPT{i}" for i in range(1, 10)),
+    }
+)
 _ENCODED_TRAVERSAL_RE = re.compile(r"%(?:2e|2f|5c|00|25)", re.IGNORECASE)
 _EMAIL_RE = re.compile(r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$")
 _DB_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*){0,2}$")
@@ -81,15 +91,20 @@ def normalize_filesystem_resource(raw_path: str, *, field_name: str = "resource"
         raise ResourceValidationError(
             f"Unsafe {field_name}: backslashes are prohibited in resource paths."
         )
-    if _WINDOWS_DRIVE_RE.match(cleaned) or cleaned.startswith("/"):
+    if _WINDOWS_DRIVE_RE.match(cleaned) or cleaned.startswith("/") or ":" in cleaned:
         raise ResourceValidationError(
-            f"Unsafe {field_name}: absolute or drive-prefixed paths are prohibited."
+            f"Unsafe {field_name}: absolute, colon/ADS, or drive-prefixed paths are prohibited."
         )
     segments = cleaned.split("/")
     for segment in segments:
         if segment in ("", ".", ".."):
             raise ResourceValidationError(
                 f"Unsafe {field_name}: path traversal or empty/dot segments are prohibited."
+            )
+        stem = segment.split(".", 1)[0].upper()
+        if stem in _WINDOWS_RESERVED_NAMES:
+            raise ResourceValidationError(
+                f"Unsafe {field_name}: reserved OS device name segment '{segment}' is prohibited."
             )
     normalized = posixpath.normpath(cleaned)
     if normalized != cleaned or normalized.startswith("..") or normalized.startswith("/"):
@@ -216,7 +231,7 @@ def _check_nested_resource_keys(
     for key, val in args.items():
         if isinstance(val, dict):
             for nested_key, nested_val in val.items():
-                if nested_key in keys and nested_val is not None:
+                if str(nested_key).lower() in keys and nested_val is not None:
                     values = (
                         nested_val
                         if (allow_lists and isinstance(nested_val, list))
@@ -273,12 +288,12 @@ def validate_and_normalize_resource(
 
     if kind == "filesystem":
         canonical = normalize_filesystem_resource(resource)
-        for key in _FILESYSTEM_ARG_KEYS:
-            if key in args and args[key] is not None:
-                if not isinstance(args[key], str):
+        for key, raw_val in args.items():
+            if str(key).lower() in _FILESYSTEM_ARG_KEYS and raw_val is not None:
+                if not isinstance(raw_val, str):
                     raise ResourceValidationError(f"Unsafe argument '{key}': expected string path.")
                 arg_canonical = normalize_filesystem_resource(
-                    args[key], field_name=f"arguments.{key}"
+                    raw_val, field_name=f"arguments.{key}"
                 )
                 if arg_canonical != canonical:
                     raise ResourceValidationError(
@@ -295,23 +310,21 @@ def validate_and_normalize_resource(
     if kind == "network":
         canonical = normalize_network_resource(resource)
         parsed_canonical = urlsplit(canonical)
-        for key in _NETWORK_ARG_KEYS:
-            if key in args and args[key] is not None:
-                if not isinstance(args[key], str):
+        for key, raw_val in args.items():
+            lowered = str(key).lower()
+            if lowered in _NETWORK_ARG_KEYS and raw_val is not None:
+                if not isinstance(raw_val, str):
                     raise ResourceValidationError(f"Unsafe argument '{key}': expected string URL.")
-                arg_canonical = normalize_network_resource(args[key], field_name=f"arguments.{key}")
+                arg_canonical = normalize_network_resource(raw_val, field_name=f"arguments.{key}")
                 if arg_canonical != canonical:
                     raise ResourceValidationError(
                         f"Resource mismatch between 'resource' and 'arguments.{key}'."
                     )
-        for host_key in ("host", "domain"):
-            if host_key in args and args[host_key] is not None:
-                if not isinstance(args[host_key], str):
-                    raise ResourceValidationError(f"Unsafe argument '{host_key}'.")
-                if args[host_key].strip().lower() != (parsed_canonical.hostname or ""):
-                    raise ResourceValidationError(
-                        f"Resource host mismatch with 'arguments.{host_key}'."
-                    )
+            elif lowered in {"host", "domain"} and raw_val is not None:
+                if not isinstance(raw_val, str):
+                    raise ResourceValidationError(f"Unsafe argument '{key}'.")
+                if raw_val.strip().lower() != (parsed_canonical.hostname or ""):
+                    raise ResourceValidationError(f"Resource host mismatch with 'arguments.{key}'.")
         _check_nested_resource_keys(
             args,
             keys=_NETWORK_ARG_KEYS,
@@ -322,9 +335,8 @@ def validate_and_normalize_resource(
 
     if kind == "communication":
         canonical = normalize_communication_resource(resource)
-        for key in _COMMUNICATION_ARG_KEYS:
-            if key in args and args[key] is not None:
-                raw_val = args[key]
+        for key, raw_val in args.items():
+            if str(key).lower() in _COMMUNICATION_ARG_KEYS and raw_val is not None:
                 values = raw_val if isinstance(raw_val, list) else [raw_val]
                 if not values:
                     raise ResourceValidationError(f"Unsafe empty list in 'arguments.{key}'.")
@@ -351,18 +363,16 @@ def validate_and_normalize_resource(
 
     if kind == "database":
         canonical = normalize_database_resource(resource)
-        for sql_key in _DATABASE_RAW_SQL_KEYS:
-            if sql_key in args and args[sql_key] is not None:
+        for key, raw_val in args.items():
+            lowered = str(key).lower()
+            if lowered in _DATABASE_RAW_SQL_KEYS and raw_val is not None:
                 raise ResourceValidationError(
-                    f"Unsafe argument '{sql_key}': arbitrary SQL statements are prohibited."
+                    f"Unsafe argument '{key}': arbitrary SQL statements are prohibited."
                 )
-        for key in _DATABASE_ARG_KEYS:
-            if key in args and args[key] is not None:
-                if not isinstance(args[key], str):
+            if lowered in _DATABASE_ARG_KEYS and raw_val is not None:
+                if not isinstance(raw_val, str):
                     raise ResourceValidationError(f"Unsafe argument '{key}': expected string.")
-                arg_canonical = normalize_database_resource(
-                    args[key], field_name=f"arguments.{key}"
-                )
+                arg_canonical = normalize_database_resource(raw_val, field_name=f"arguments.{key}")
                 if arg_canonical != canonical:
                     raise ResourceValidationError(
                         f"Resource mismatch between 'resource' and 'arguments.{key}'."
@@ -376,11 +386,11 @@ def validate_and_normalize_resource(
         return canonical
 
     canonical = normalize_generic_resource(resource)
-    for key in _GENERIC_ARG_KEYS:
-        if key in args and args[key] is not None:
-            if not isinstance(args[key], str):
+    for key, raw_val in args.items():
+        if str(key).lower() in _GENERIC_ARG_KEYS and raw_val is not None:
+            if not isinstance(raw_val, str):
                 raise ResourceValidationError(f"Unsafe argument '{key}': expected string.")
-            arg_canonical = normalize_generic_resource(args[key], field_name=f"arguments.{key}")
+            arg_canonical = normalize_generic_resource(raw_val, field_name=f"arguments.{key}")
             if arg_canonical != canonical:
                 raise ResourceValidationError(
                     f"Resource mismatch between 'resource' and 'arguments.{key}'."

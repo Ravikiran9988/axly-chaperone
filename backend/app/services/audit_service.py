@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
-from datetime import datetime
+import uuid
+from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import UUID
 
@@ -17,6 +20,42 @@ from app.models.audit import AuditEvent
 from app.models.enums import AuditEventType, ExecutionStatus, PolicyDecision, VerificationStatus
 
 logger = logging.getLogger("chaperone.audit")
+
+
+def _fmt_utc_iso(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    aware = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+    return aware.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def compute_audit_record_hash(event: AuditEvent) -> str:
+    """Compute a deterministic SHA-256 digest over immutable AuditEvent fields."""
+    canonical = json.dumps(
+        {
+            "id": str(event.id),
+            "event_type": event.event_type,
+            "correlation_id": event.correlation_id,
+            "agent_id": str(event.agent_id) if event.agent_id else None,
+            "tool_name": event.tool_name,
+            "action": event.action,
+            "resource": event.resource,
+            "decision": event.decision,
+            "reason": event.reason,
+            "policy_id": str(event.policy_id) if event.policy_id else None,
+            "policy_version": event.policy_version,
+            "approval_id": str(event.approval_id) if event.approval_id else None,
+            "reviewer_id": event.reviewer_id,
+            "reviewed_at": _fmt_utc_iso(event.reviewed_at),
+            "verification_outcome": event.verification_outcome,
+            "execution_status": event.execution_status,
+            "verification_status": event.verification_status,
+            "created_at": _fmt_utc_iso(event.created_at),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 class AuditService:
@@ -46,10 +85,13 @@ class AuditService:
         execution_metadata: dict[str, Any] | None = None,
         commit: bool = True,
     ) -> AuditEvent:
-        """Persist an immutable audit event; fail closed if persistence fails."""
+        """Persist an immutable audit event with integrity digest; fail closed on error."""
         safe_resource = redact_secrets(resource)[:1024]
         safe_reason = redact_secrets(reason)[:2000]
+        event_id = uuid.uuid4()
+        created_at = datetime.now(UTC)
         event = AuditEvent(
+            id=event_id,
             event_type=event_type.value,
             correlation_id=correlation_id[:64],
             agent_id=agent_id,
@@ -68,7 +110,9 @@ class AuditService:
             execution_metadata=execution_metadata,
             execution_status=execution_status.value,
             verification_status=verification_status.value,
+            created_at=created_at,
         )
+        event.record_hash = compute_audit_record_hash(event)
         session.add(event)
         try:
             if commit:
@@ -139,3 +183,33 @@ class AuditService:
         if event is None:
             raise ResourceNotFoundError(f"Audit event '{event_id}' not found.")
         return event
+
+    async def verify_integrity(
+        self,
+        session: AsyncSession,
+        *,
+        limit: int = 1000,
+    ) -> dict[str, Any]:
+        """Verify record_hash integrity across recent append-only audit records."""
+        stmt = select(AuditEvent).order_by(AuditEvent.created_at.desc()).limit(limit)
+        events = list((await session.execute(stmt)).scalars().all())
+        verified = 0
+        legacy_unhashed = 0
+        tampered_ids: list[UUID] = []
+        for ev in events:
+            if not ev.record_hash:
+                legacy_unhashed += 1
+                continue
+            expected_hash = compute_audit_record_hash(ev)
+            if ev.record_hash == expected_hash:
+                verified += 1
+            else:
+                tampered_ids.append(ev.id)
+        return {
+            "checked": len(events),
+            "verified": verified,
+            "legacy_unhashed": legacy_unhashed,
+            "tampered": len(tampered_ids),
+            "tampered_ids": tampered_ids,
+            "intact": len(tampered_ids) == 0,
+        }

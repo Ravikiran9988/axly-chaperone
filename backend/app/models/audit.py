@@ -6,11 +6,23 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, CheckConstraint, ForeignKey, Integer, String, Text, Uuid, func
+from sqlalchemy import (
+    JSON,
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    Uuid,
+    event,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.core.exceptions import AuditPersistenceError
 from app.models.enums import AuditEventType, ExecutionStatus
 from app.models.types import UTCDateTime, utc_now
 
@@ -40,6 +52,9 @@ class AuditEvent(Base):
             ")",
             name="valid_audit_verification_status",
         ),
+        Index("ix_audit_events_corr_created", "correlation_id", "created_at"),
+        Index("ix_audit_events_agent_created", "agent_id", "created_at"),
+        Index("ix_audit_events_type_verif", "event_type", "verification_status"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -92,6 +107,7 @@ class AuditEvent(Base):
         default=ExecutionStatus.NOT_EXECUTED.value,
     )
     verification_status: Mapped[str] = mapped_column(String(64), nullable=False)
+    record_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         UTCDateTime,
         nullable=False,
@@ -99,3 +115,15 @@ class AuditEvent(Base):
         server_default=func.now(),
         index=True,
     )
+
+
+@event.listens_for(AuditEvent, "before_update")
+def _prevent_audit_event_update(_mapper: Any, _connection: Any, _target: AuditEvent) -> None:
+    """Enforce append-only audit immutability at the ORM persistence layer."""
+    raise AuditPersistenceError("Audit events are immutable and cannot be updated.")
+
+
+@event.listens_for(AuditEvent, "before_delete")
+def _prevent_audit_event_delete(_mapper: Any, _connection: Any, _target: AuditEvent) -> None:
+    """Enforce append-only audit immutability at the ORM persistence layer."""
+    raise AuditPersistenceError("Audit events are append-only and cannot be deleted.")

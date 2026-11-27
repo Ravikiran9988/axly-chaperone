@@ -352,7 +352,7 @@ class ApprovalService:
 
         now = datetime.now(UTC)
         if now >= approval.expires_at:
-            await session.execute(
+            exp_res = await session.execute(
                 update(ApprovalRequest)
                 .where(
                     ApprovalRequest.id == approval.id,
@@ -360,7 +360,29 @@ class ApprovalService:
                 )
                 .values(status=ApprovalStatus.EXPIRED.value)
             )
-            await session.commit()
+            if exp_res.rowcount and exp_res.rowcount > 0:
+                await self._audit.record_event(
+                    session,
+                    correlation_id=active_cid,
+                    agent_id=approval.agent_id,
+                    tool_name=approval.tool_name,
+                    action=approval.action,
+                    resource=approval.resource,
+                    decision=PolicyDecision.DENY,
+                    reason="Approved request expired before execution.",
+                    policy_id=approval.policy_id,
+                    policy_version=approval.policy_version,
+                    policy_metadata={"stage": "pre_execution_expiration"},
+                    approval_id=approval.id,
+                    reviewer_id=approval.reviewer_id,
+                    reviewed_at=approval.reviewed_at,
+                    execution_status=ExecutionStatus.EXPIRED,
+                    verification_status=VerificationStatus.EXPIRED,
+                    event_type=AuditEventType.APPROVAL_EXPIRED,
+                    commit=True,
+                )
+            else:
+                await session.commit()
             raise ConflictError("Approval request has expired.", code="APPROVAL_EXPIRED")
 
         # Atomic Compare-And-Swap execution claim prevents concurrent/duplicate execution
@@ -536,7 +558,10 @@ class ApprovalService:
             commit=True,
         )
         await session.refresh(approval)
-        return approval, verification, dispatch_res.output if exec_succeeded else None
+        verified_output = (
+            dispatch_res.output if final_approval_status == ApprovalStatus.EXECUTED else None
+        )
+        return approval, verification, verified_output
 
     async def approve(
         self,

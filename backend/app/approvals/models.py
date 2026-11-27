@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, CheckConstraint, ForeignKey, Integer, String, Text, Uuid, func
+from sqlalchemy import JSON, CheckConstraint, ForeignKey, Index, Integer, String, Text, Uuid, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -24,6 +24,7 @@ class ApprovalRequest(Base):
             "status IN ('pending', 'approved', 'rejected', 'expired', 'executed', 'failed')",
             name="valid_approval_status",
         ),
+        Index("ix_approval_requests_status_requested", "status", "requested_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)

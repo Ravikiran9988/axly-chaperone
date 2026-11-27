@@ -55,8 +55,7 @@ def create_app(
         title=resolved_settings.app_name,
         version=resolved_settings.app_version,
         description=(
-            "AXLY Chaperone — AI Agent Security & Governance Gateway. "
-            "Safe autonomy. Human control."
+            "AXLY Chaperone — AI Agent Security & Governance Gateway. Safe autonomy. Human control."
         ),
         docs_url=None if is_prod else "/docs",
         redoc_url=None if is_prod else "/redoc",

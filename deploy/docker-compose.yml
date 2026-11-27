@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: axly_chaperone
+      POSTGRES_USER: chaperone_app
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in shell or compose env}
+    volumes:
+      - chaperone_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chaperone_app -d axly_chaperone"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      CHAPERONE_ENV: production
+      CHAPERONE_DATABASE_URL: postgresql+asyncpg://chaperone_app:${POSTGRES_PASSWORD}@postgres:5432/axly_chaperone
+      CHAPERONE_ADMIN_API_KEY: ${CHAPERONE_ADMIN_API_KEY:?Set CHAPERONE_ADMIN_API_KEY (>=32 chars)}
+      CHAPERONE_API_KEY_PEPPER: ${CHAPERONE_API_KEY_PEPPER:-}
+      CHAPERONE_CORS_ORIGINS: '["http://localhost:8080"]'
+      CHAPERONE_SANDBOX_DIR: /var/lib/chaperone/sandbox_data
+      CHAPERONE_LOG_JSON: "true"
+    volumes:
+      - chaperone_sandbox:/var/lib/chaperone/sandbox_data
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.frontend
+      args:
+        VITE_API_BASE_URL: ""
+        VITE_AUTH_MODE: admin_key
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+
+volumes:
+  chaperone_pgdata:
+  chaperone_sandbox:

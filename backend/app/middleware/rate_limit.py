@@ -34,9 +34,7 @@ class InMemorySlidingWindowLimiter:
 
     def _prune_stale_locked(self, cutoff: float) -> None:
         stale_keys = [
-            key
-            for key, bucket in self._buckets.items()
-            if not bucket or bucket[-1] <= cutoff
+            key for key, bucket in self._buckets.items() if not bucket or bucket[-1] <= cutoff
         ]
         for key in stale_keys:
             del self._buckets[key]

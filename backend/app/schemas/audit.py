@@ -35,4 +35,18 @@ class AuditEventResponse(BaseModel):
     execution_metadata: dict[str, Any] | None
     execution_status: ExecutionStatus
     verification_status: VerificationStatus
+    record_hash: str | None = None
     created_at: datetime
+
+
+class AuditIntegrityResponse(BaseModel):
+    """Integrity verification summary across stored audit_events records."""
+
+    model_config = ConfigDict(frozen=True)
+
+    checked: int
+    verified: int
+    legacy_unhashed: int
+    tampered: int
+    tampered_ids: list[UUID]
+    intact: bool
