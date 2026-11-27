@@ -27,6 +27,11 @@ services:
       CHAPERONE_DATABASE_URL: postgresql+asyncpg://chaperone_app:${POSTGRES_PASSWORD}@postgres:5432/axly_chaperone
       CHAPERONE_ADMIN_API_KEY: ${CHAPERONE_ADMIN_API_KEY:?Set CHAPERONE_ADMIN_API_KEY (>=32 chars)}
       CHAPERONE_API_KEY_PEPPER: ${CHAPERONE_API_KEY_PEPPER:-}
+      # Local http://localhost:8080 compose preview defaults cookie_secure to false; set true behind HTTPS ingress
+      CHAPERONE_COOKIE_SECURE: ${CHAPERONE_COOKIE_SECURE:-false}
+      CHAPERONE_COOKIE_SAMESITE: ${CHAPERONE_COOKIE_SAMESITE:-lax}
+      CHAPERONE_ALLOW_ADMIN_API_KEY_HEADER: ${CHAPERONE_ALLOW_ADMIN_API_KEY_HEADER:-false}
+      CHAPERONE_ALLOW_BOOTSTRAP_KEY_LOGIN: ${CHAPERONE_ALLOW_BOOTSTRAP_KEY_LOGIN:-false}
       CHAPERONE_CORS_ORIGINS: '["http://localhost:8080"]'
       CHAPERONE_SANDBOX_DIR: /var/lib/chaperone/sandbox_data
       CHAPERONE_LOG_JSON: "true"
@@ -39,7 +44,6 @@ services:
       dockerfile: deploy/Dockerfile.frontend
       args:
         VITE_API_BASE_URL: ""
-        VITE_AUTH_MODE: admin_key
     restart: unless-stopped
     depends_on:
       - backend

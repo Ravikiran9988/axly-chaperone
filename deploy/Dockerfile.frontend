@@ -8,9 +8,7 @@ COPY frontend/index.html frontend/postcss.config.js frontend/tailwind.config.js 
 COPY frontend/src ./src
 
 ARG VITE_API_BASE_URL=
-ARG VITE_AUTH_MODE=admin_key
-ENV VITE_API_BASE_URL=$VITE_API_BASE_URL \
-    VITE_AUTH_MODE=$VITE_AUTH_MODE
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 
 RUN npm run build
 

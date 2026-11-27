@@ -1,46 +1,49 @@
-# AXLY Chaperone — System Architecture
+# Architecture Overview
 
-**AXLY Chaperone** is a deterministic AI Agent Security & Governance Gateway designed around one core invariant:
+AXLY Chaperone acts as an inline security and governance proxy between AI agents (or MCP servers) and controlled execution adapters.
 
-> **Every agent tool request must pass through Chaperone before execution.**
+## Request & Enforcement Flow
 
-## High-Level Request Lifecycle
+1. **Ingress (`REST Gateway` or `ChaperoneMCPServer`):**
+   - **REST API:** Agent sends `POST /api/v1/tools/execute` or `/evaluate` with `X-Agent-Key` and correlation ID.
+   - **MCP (`mcp` Python SDK):** LLM discovers sanitized tool schemas (`tools/list`) with **zero** credential fields. `ChaperoneMCPServer` binds the agent API key out-of-band (constructor `bound_agent_key` / `credential_provider` / `CHAPERONE_MCP_AGENT_KEY`), rejects smuggled credential keys (`agent_api_key`, `api_key`, `x_agent_key`, `admin_api_key`), and forwards into the gateway pipeline.
+2. **Authentication & Session Security:**
+   - **Agent requests:** `AgentAuth` verifies `X-Agent-Key` via PBKDF2-HMAC-SHA256 (`200,000` default iterations + optional pepper) + constant-time digest compare + active `AgentStatus.ACTIVE` enforcement.
+   - **Administrator requests:** Browser console and CLI/API users authenticate via `POST /api/v1/auth/login` (`AdminUser` username/password or opt-in bootstrap key) receiving a server-persisted `AdminSession` cookie (`chaperone_session`, `HttpOnly`, `SameSite=lax|strict`, `Secure` configurable/enforced in production) and paired CSRF token (`chaperone_csrf` + `X-CSRF-Token` double-submit validation on unsafe methods). Client-supplied `X-Admin-Actor` headers are never trusted.
+   - **RBAC:** `super_admin` controls agent/tool/policy lifecycle and user administration; `approver` and `super_admin` review approvals; `viewer` holds read-only inspection access.
+3. **Deterministic Policy Evaluation (`PolicyEngine`):**
+   - Disabled agents or disabled/unregistered tools fail closed before policy rule matching.
+   - Active rules matching `(agent, tool, action)` evaluate against resource patterns in canonical order: `EXPLICIT_DENY > REQUIRE_APPROVAL > ALLOW > DEFAULT_DENY`.
+   - Policy decisions never delegate to an LLM.
+4. **Human Approval Workflow (`ApprovalService`):**
+   - `REQUIRE_APPROVAL` persists sanitized normalized request parameters and a canonical `payload_hash` (SHA-256) with configurable TTL (`CHAPERONE_APPROVAL_TTL_SECONDS`, default `900s`).
+   - Reviewer identity is derived strictly from the server-verified `AdminPrincipal`.
+   - Execution verifies TTL expiry, re-evaluates payload hash against tampering, and atomically claims `status = 'approved' -> 'executing'` in SQL so concurrent replay races yield at most one execution (`409 Conflict` for duplicates).
+5. **Controlled Execution Adapters (`ExecutionDispatcher`):**
+   - `file_tool` enforces sandbox confinement via POSIX `dir_fd` + `O_NOFOLLOW` / atomic temp-file swap and Windows `FILE_FLAG_OPEN_REPARSE_POINT` handle attribute + `GetFinalPathNameByHandleW` verification.
+   - `database_tool` restricts actions to an allowlisted parameterized SQLAlchemy repository slice (`read_records`, `update_record`).
+   - `email_tool` enforces schema validation, draft creation, and gateway approval on external sends.
+6. **Post-Execution Outcome Verification (`VerificationEngine`):**
+   - Independently inspects controlled system state alongside sanitized `execution_output`:
+     - `file_tool.write`: verifies file presence, non-reparse handle safety, byte length, and SHA-256 checksum.
+     - `file_tool.read`: verifies reported byte size and SHA-256 hash against the actual sandbox file without storing plaintext file content in audit tables.
+     - `file_tool.list`: verifies sorted entry names, types, byte sizes, and manifest digest against live sandbox directory listing.
+     - `database_tool` & `email_tool`: confirms persisted database record updates and outbox/draft records.
+7. **Hash-Chained Audit Log (`AuditService`):**
+   - Sequential `chain_seq` allocated under `AuditChainState` concurrency locking (`pg_advisory_xact_lock` on PostgreSQL; per-engine async lock on SQLite).
+   - Canonical recursive SHA-256 hash spans `chain_seq`, `previous_hash`, `timestamp`, `actor_type`, `actor_id`, `correlation_id`, `action`, `tool_name`, `decision`, `execution_status`, `policy_metadata`, and `execution_metadata`.
+   - Full-chain verification (`GET /api/v1/audit-events/integrity`) checks contiguous `chain_seq`, hash continuity, metadata consistency, unchained row detection, and non-decreasing timestamps.
 
-```mermaid
-flowchart LR
-    Agent["AI Agent / MCP Client"] -->|"X-Agent-Key / MCP Call"| Middleware["CorrelationId + SecurityHeaders + RateLimit + SizeLimit"]
-    Middleware --> Auth["AgentAuth (PBKDF2-HMAC-SHA256)"]
-    Auth -->|"401/403 + Audit DENY"| Audit[("Append-Only audit_events")]
-    Auth --> Policy["Deterministic PolicyEngine"]
-    Policy -->|"DENY (Default or Explicit)"| Audit
-    Policy -->|"REQUIRE_APPROVAL (202)"| Approval[("approval_requests (SHA-256 bound)")]
-    Console["React Governance Console (X-Admin-Key)"] -->|"Approve / Reject"| Approval
-    Policy -->|"ALLOW"| Dispatcher["ExecutionDispatcher (Timeouts + Registry)"]
-    Approval -->|"Approved + Re-evaluated + CAS Claim"| Dispatcher
-    Dispatcher --> Adapters["Controlled Adapters (file_tool / email_tool / database_tool)"]
-    Adapters --> Verifier["Independent VerificationEngine"]
-    Verifier --> VerifyDB[("verification_records")]
-    Verifier --> Audit
-```
+## Database & Migration Architecture
 
-## Subsystems
+Alembic revisions (`backend/alembic/versions/`):
+- `0001_initial_schema.py`: `agents`, `tools`, `policies`, `approvals`, `audit_events`, `verification_results`
+- `0002_phase2_approval_constraints.py`: single-execution / payload constraints
+- `0003_security_hardening_indexes.py`: operational query indexes
+- `0004_security_remediation.py`: `admin_users`, `admin_sessions`, `audit_chain_state`, plus `chain_seq` and `previous_hash` columns/indexes on `audit_events`
 
-1. **Control Plane & Admin API (`backend/app/api/routes/`):**
-   - Authenticated via `X-Admin-Key` (constant-time SHA-256 comparison against `CHAPERONE_ADMIN_API_KEY`).
-   - Manages agents (`/api/v1/agents`), registered tools (`/api/v1/tools`), versioned policies (`/api/v1/policies`), human approvals (`/api/v1/approvals`), and append-only audit inspection (`/api/v1/audit-events`, `/api/v1/audit-events/integrity`).
-2. **Gateway & Security Middleware (`backend/app/middleware/`, `services/gateway_service.py`):**
-   - Enforces `X-Correlation-ID`, HTTP security headers (`CSP`, `X-Frame-Options: DENY`, `nosniff`, `no-referrer`), bounded in-memory sliding-window rate limiting, and pre-parse HTTP request body size limits (`413 PAYLOAD_TOO_LARGE`).
-   - Persists immutable audit events **before** dispatching any adapter (`AuditPersistenceError` fails closed).
-3. **Deterministic Policy Engine (`backend/app/security/`):**
-   - Pure Python evaluation without LLM involvement.
-   - Enforces authentication, agent status, tool registration/enablement, resource normalization, and argument-smuggling checks before evaluating policies.
-4. **Human Approval Workflow (`backend/app/approvals/`):**
-   - Binds pending requests with SHA-256 `payload_hash`.
-   - Enforces expiration TTLs, atomic Compare-And-Swap (`execution_claimed_at`) execution claims, and pre-execution policy re-evaluation.
-5. **Controlled Adapters & MCP Server (`backend/app/adapters/`, `execution/`):**
-   - `FileToolAdapter` (`CHAPERONE_SANDBOX_DIR` isolation, symlink/junction & ADS/reserved-name defense), `EmailToolAdapter` (`mock_emails` local store), and `DatabaseToolAdapter` (`demo_invoices` / `demo_tasks` allowlist, zero raw SQL).
-   - MCP server built on official Python `mcp` SDK routes every `call_tool` directly through `authenticate_agent_key` and `GatewayService.execute_request`.
-6. **Independent Verification Engine (`backend/app/verification/`):**
-   - Independently inspects sandbox files (existence, byte size, SHA-256), `mock_emails`, and `demo_*` ORM rows after execution instead of trusting adapter success flags.
-7. **React Governance Console (`frontend/`):**
-   - Dark-first Vite + React + Tailwind + TanStack Query UI communicating strictly with real backend endpoints while holding admin credentials in memory only.
+## Frontend Architecture
+
+- React 18 + JavaScript + Vite + Tailwind CSS + TanStack Query + React Router + Recharts + Zod.
+- `AuthContext` probes `GET /api/v1/auth/session` with `withCredentials: true` on startup and attaches `X-CSRF-Token` (kept strictly in JS memory / CSRF cookie) to state-changing requests.
+- Zero credentials, session tokens, or API keys are persisted in browser `localStorage` or `sessionStorage`.
