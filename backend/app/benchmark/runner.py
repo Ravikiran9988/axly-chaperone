@@ -1,4 +1,4 @@
-"""Reproducible benchmark runner computing real security metrics, latency percentiles, and reports."""
+"""Reproducible benchmark runner for security metrics, latency percentiles, and reports."""
 
 from __future__ import annotations
 
@@ -360,14 +360,23 @@ def _render_markdown_report(report: dict[str, Any]) -> str:
         "# AXLY Chaperone — Security Benchmark Report",
         "",
         f"- **Generated (UTC):** `{report['timestamp_utc']}`",
-        f"- **Platform:** `{env['platform']}` | **Python:** `{env['python_version']}` | **CPU Cores:** `{env['cpu_count']}`",
-        f"- **Database Backend:** `{env['database_backend']}` | **Rate Limiter:** `disabled for benchmark throughput`",
+        (
+            f"- **Platform:** `{env['platform']}` | **Python:** `{env['python_version']}`"
+            f" | **CPU Cores:** `{env['cpu_count']}`"
+        ),
+        (
+            f"- **Database Backend:** `{env['database_backend']}`"
+            " | **Rate Limiter:** `disabled for benchmark throughput`"
+        ),
         "",
         "## Summary Counts",
         "",
         "| Metric | Value |",
         "|---|---|",
-        f"| Total Scenarios | **{c['total_scenarios']}** ({c['malicious_scenarios']} malicious / {c['legitimate_scenarios']} legitimate) |",
+        (
+            f"| Total Scenarios | **{c['total_scenarios']}** "
+            f"({c['malicious_scenarios']} malicious / {c['legitimate_scenarios']} legitimate) |"
+        ),
         f"| Passed Scenarios | **{c['passed_scenarios']}** |",
         f"| Failed Scenarios | **{c['failed_scenarios']}** |",
         f"| Skipped Scenarios | **{c['skipped_scenarios']}** |",
@@ -376,20 +385,61 @@ def _render_markdown_report(report: dict[str, Any]) -> str:
         "",
         "| Metric | Rate | Exact Ratio |",
         "|---|---|---|",
-        f"| Security Blocking Rate | **{r['security_blocking_rate'] * 100:.2f}%** | {d['unauthorized_prevented']} / {d['unauthorized_attempts']} |",
-        f"| Legitimate Task Success Rate | **{r['legitimate_task_success_rate'] * 100:.2f}%** | {d['legitimate_succeeded']} / {d['legitimate_attempts']} |",
-        f"| False-Block Rate | **{r['false_block_rate'] * 100:.2f}%** | {d['false_blocks']} / {d['legitimate_attempts']} |",
-        f"| Policy Decision Accuracy | **{r['policy_decision_accuracy'] * 100:.2f}%** | {d['policy_correct']} / {d['policy_cases']} |",
-        f"| Outcome Verification Accuracy | **{r['outcome_verification_accuracy'] * 100:.2f}%** | {d['verification_correct']} / {d['verification_cases']} |",
+        (
+            f"| Security Blocking Rate | **{r['security_blocking_rate'] * 100:.2f}%** | "
+            f"{d['unauthorized_prevented']} / {d['unauthorized_attempts']} |"
+        ),
+        (
+            "| Legitimate Task Success Rate | "
+            f"**{r['legitimate_task_success_rate'] * 100:.2f}%** | "
+            f"{d['legitimate_succeeded']} / {d['legitimate_attempts']} |"
+        ),
+        (
+            f"| False-Block Rate | **{r['false_block_rate'] * 100:.2f}%** | "
+            f"{d['false_blocks']} / {d['legitimate_attempts']} |"
+        ),
+        (
+            f"| Policy Decision Accuracy | **{r['policy_decision_accuracy'] * 100:.2f}%** | "
+            f"{d['policy_correct']} / {d['policy_cases']} |"
+        ),
+        (
+            "| Outcome Verification Accuracy | "
+            f"**{r['outcome_verification_accuracy'] * 100:.2f}%** | "
+            f"{d['verification_correct']} / {d['verification_cases']} |"
+        ),
         "",
         "## Latency Breakdown (Milliseconds)",
         "",
         "| Stage | Samples | p50 (ms) | p95 (ms) | Max (ms) | Mean (ms) |",
         "|---|---|---|---|---|---|",
-        f"| Gateway Total Request | {lat['gateway_total']['samples']} | {lat['gateway_total']['p50_ms']} | {lat['gateway_total']['p95_ms']} | {lat['gateway_total']['max_ms']} | {lat['gateway_total']['mean_ms']} |",
-        f"| Gateway Overhead (excl. Adapter) | {lat['gateway_overhead_excluding_tool']['samples']} | {lat['gateway_overhead_excluding_tool']['p50_ms']} | {lat['gateway_overhead_excluding_tool']['p95_ms']} | {lat['gateway_overhead_excluding_tool']['max_ms']} | {lat['gateway_overhead_excluding_tool']['mean_ms']} |",
-        f"| Pure PolicyEngine.evaluate() | {lat['policy_engine_eval']['samples']} | {lat['policy_engine_eval']['p50_ms']} | {lat['policy_engine_eval']['p95_ms']} | {lat['policy_engine_eval']['max_ms']} | {lat['policy_engine_eval']['mean_ms']} |",
-        f"| Controlled Tool Adapter Execution | {lat['tool_adapter_execution']['samples']} | {lat['tool_adapter_execution']['p50_ms']} | {lat['tool_adapter_execution']['p95_ms']} | {lat['tool_adapter_execution']['max_ms']} | {lat['tool_adapter_execution']['mean_ms']} |",
+        (
+            f"| Gateway Total Request | {lat['gateway_total']['samples']} | "
+            f"{lat['gateway_total']['p50_ms']} | {lat['gateway_total']['p95_ms']} | "
+            f"{lat['gateway_total']['max_ms']} | {lat['gateway_total']['mean_ms']} |"
+        ),
+        (
+            "| Gateway Overhead (excl. Adapter) | "
+            f"{lat['gateway_overhead_excluding_tool']['samples']} | "
+            f"{lat['gateway_overhead_excluding_tool']['p50_ms']} | "
+            f"{lat['gateway_overhead_excluding_tool']['p95_ms']} | "
+            f"{lat['gateway_overhead_excluding_tool']['max_ms']} | "
+            f"{lat['gateway_overhead_excluding_tool']['mean_ms']} |"
+        ),
+        (
+            f"| Pure PolicyEngine.evaluate() | {lat['policy_engine_eval']['samples']} | "
+            f"{lat['policy_engine_eval']['p50_ms']} | "
+            f"{lat['policy_engine_eval']['p95_ms']} | "
+            f"{lat['policy_engine_eval']['max_ms']} | "
+            f"{lat['policy_engine_eval']['mean_ms']} |"
+        ),
+        (
+            "| Controlled Tool Adapter Execution | "
+            f"{lat['tool_adapter_execution']['samples']} | "
+            f"{lat['tool_adapter_execution']['p50_ms']} | "
+            f"{lat['tool_adapter_execution']['p95_ms']} | "
+            f"{lat['tool_adapter_execution']['max_ms']} | "
+            f"{lat['tool_adapter_execution']['mean_ms']} |"
+        ),
         "",
         "## Scenario Results",
         "",
@@ -511,15 +561,20 @@ async def run_security_benchmark(*, write_reports: bool = True) -> dict[str, Any
     }
 
     if write_reports:
-        repo_root = Path(__file__).resolve().parents[3]
-        out_dir = repo_root / "benchmarks" / "results"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        json_path = out_dir / "latest_benchmark.json"
-        md_path = out_dir / "latest_benchmark.md"
-        json_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
-        md_path.write_text(_render_markdown_report(report), encoding="utf-8")
+        await asyncio.to_thread(_write_report_files, report)
 
     return report
+
+
+def _write_report_files(report: dict[str, Any]) -> None:
+    """Persist machine-readable JSON and human-readable Markdown benchmark reports."""
+    repo_root = Path(__file__).resolve().parents[3]
+    out_dir = repo_root / "benchmarks" / "results"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    json_path = out_dir / "latest_benchmark.json"
+    md_path = out_dir / "latest_benchmark.md"
+    json_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    md_path.write_text(_render_markdown_report(report), encoding="utf-8")
 
 
 def main() -> None:

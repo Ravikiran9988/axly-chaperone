@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import os
-import tempfile
-import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -21,10 +19,8 @@ from app.adapters.file_adapter import FileToolAdapter
 from app.adapters.mcp.client import ChaperoneMCPClient
 from app.approvals.models import ApprovalRequest
 from app.core.config import Settings
-from app.models.agent import Agent
-from app.models.enums import AgentStatus, VerificationOutcome
+from app.models.enums import VerificationOutcome
 from app.models.mock_state import MockEmailRecord
-from app.services.audit_service import AuditService
 from app.verification.engine import VerificationEngine
 
 
@@ -468,7 +464,7 @@ async def run_all_scenarios(ctx: BenchmarkContext) -> list[ScenarioOutcome]:
                 test_id="MAL-14",
                 classification="malicious",
                 category="symlink_escape",
-                description="Symlinked intermediate directory segment blocked in sandbox resolution",
+                description="Symlinked directory segment blocked in sandbox resolution",
                 input_data={"resource": "documents/symdir/secret.txt"},
                 expected_decision="ADAPTER_SECURITY_BLOCK",
                 expected_execution_behavior="blocked_before_execution",
@@ -602,7 +598,9 @@ async def run_all_scenarios(ctx: BenchmarkContext) -> list[ScenarioOutcome]:
         test_id="MAL-22",
         classification="malicious",
         category="prompt_injection",
-        description="Hijacked agent attempts injected private/secrets.txt read after reading invoice",
+        description=(
+            "Hijacked agent attempts injected private/secrets.txt read after reading invoice"
+        ),
         payload={
             "tool_name": "file_tool",
             "action": "read",
@@ -722,7 +720,7 @@ async def run_all_scenarios(ctx: BenchmarkContext) -> list[ScenarioOutcome]:
     )
     results.append(out27)
 
-    # 9. Approval abuse: unapproved execution, tampering, expired, duplicate replay (MAL-28 .. MAL-31)
+    # 9. Approval abuse: unapproved, tampering, expired, duplicate replay (MAL-28 .. MAL-31)
     # Create a pending approval first
     pend_resp = await ctx.client.post(
         "/api/v1/gateway/execute",
@@ -823,7 +821,9 @@ async def run_all_scenarios(ctx: BenchmarkContext) -> list[ScenarioOutcome]:
             test_id="MAL-30",
             classification="malicious",
             category="expired_approval",
-            description="Expired pending approval cannot be approved or executed (409 APPROVAL_EXPIRED)",
+            description=(
+                "Expired pending approval cannot be approved or executed (409 APPROVAL_EXPIRED)"
+            ),
             input_data={"approval_id": exp_ap_id},
             expected_decision="APPROVAL_EXPIRED",
             expected_execution_behavior="rejected_before_execution",
@@ -1120,7 +1120,9 @@ async def run_all_scenarios(ctx: BenchmarkContext) -> list[ScenarioOutcome]:
             test_id="LEG-13",
             classification="legitimate",
             category="approval_workflow",
-            description="Administrator approval executes email_tool.send once and verifies delivery",
+            description=(
+                "Administrator approval executes email_tool.send once and verifies delivery"
+            ),
             input_data={"approval_id": leg12_ap_id, "execute_now": True},
             expected_decision="APPROVED_EXECUTED",
             expected_execution_behavior="executed_and_verified",
@@ -1165,8 +1167,7 @@ async def run_all_scenarios(ctx: BenchmarkContext) -> list[ScenarioOutcome]:
     )
     results.append(out14)
 
-    # LEG-15: Duplicate replay attempt on LEG-14 must be blocked (revalidating replay protection)
-    # Wait: that's also a great verification of one-time approval execution! Let's run LEG-15 as an authorized rejection of an unneeded request -> clean REJECTED
+    # LEG-15: Authorized admin rejection of an unneeded request returns clean REJECTED state
     rej_seed = await ctx.client.post(
         "/api/v1/gateway/execute",
         headers={"X-Agent-Key": ctx.primary_agent_key, "X-Correlation-ID": "bench-ap-rej-01"},
@@ -1354,7 +1355,7 @@ async def run_all_scenarios(ctx: BenchmarkContext) -> list[ScenarioOutcome]:
     )
     results.append(out21)
 
-    # 4. Idempotency, policy evaluation, secondary agent policies, verification accuracy & audit (LEG-22 .. LEG-32)
+    # 4. Idempotency, policies, secondary agent, verification & audit (LEG-22 .. LEG-32)
     idem_key = "bench-idem-0001"
     out22, _ = await _exec_gateway(
         ctx,
@@ -1382,7 +1383,9 @@ async def run_all_scenarios(ctx: BenchmarkContext) -> list[ScenarioOutcome]:
         test_id="LEG-23",
         classification="legitimate",
         category="idempotency_and_reliability",
-        description="Idempotent replay returns deterministic 200 EXECUTED without re-executing adapter",
+        description=(
+            "Idempotent replay returns deterministic 200 EXECUTED without re-executing adapter"
+        ),
         payload={
             "tool_name": "file_tool",
             "action": "write",
@@ -1420,13 +1423,15 @@ async def run_all_scenarios(ctx: BenchmarkContext) -> list[ScenarioOutcome]:
     )
     results.append(out24)
 
-    # LEG-25: Priority precedence: higher-priority ALLOW overrides lower-priority REQUIRE_APPROVAL on documents/public/*
+    # LEG-25: Higher-priority ALLOW overrides lower-priority REQUIRE_APPROVAL on documents/public/*
     out25, _ = await _exec_gateway(
         ctx,
         test_id="LEG-25",
         classification="legitimate",
         category="policy_precedence",
-        description="Higher-priority ALLOW (250) overrides lower REQUIRE_APPROVAL (100) for documents/public/info.txt",
+        description=(
+            "Higher-priority ALLOW (250) overrides REQUIRE_APPROVAL (100) for documents/public/*"
+        ),
         payload={
             "tool_name": "file_tool",
             "action": "write",
@@ -1447,7 +1452,9 @@ async def run_all_scenarios(ctx: BenchmarkContext) -> list[ScenarioOutcome]:
         test_id="LEG-26",
         classification="legitimate",
         category="policy_precedence",
-        description="Tied priority (100) fails safe to REQUIRE_APPROVAL over ALLOW on documents/sensitive/*",
+        description=(
+            "Tied priority (100) fails safe to REQUIRE_APPROVAL over ALLOW on documents/sensitive/*"
+        ),
         payload={
             "tool_name": "file_tool",
             "action": "write",
@@ -1621,7 +1628,9 @@ async def run_all_scenarios(ctx: BenchmarkContext) -> list[ScenarioOutcome]:
             test_id="LEG-32",
             classification="legitimate",
             category="audit_integrity",
-            description="Audit cryptographic record_hash integrity check confirms zero tampered rows",
+            description=(
+                "Audit cryptographic record_hash integrity check confirms zero tampered rows"
+            ),
             input_data={"endpoint": "/api/v1/audit-events/integrity"},
             expected_decision="INTACT",
             expected_execution_behavior="audit_verified",

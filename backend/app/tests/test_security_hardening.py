@@ -1,4 +1,4 @@
-"""Phase 4 security regression tests covering hardening controls, concurrency, and tamper detection."""
+"""Phase 4 security regression tests covering hardening, concurrency, and tamper detection."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.adapters.base import AdapterSecurityError
 from app.adapters.email_adapter import EmailToolAdapter
-from app.adapters.file_adapter import FileToolAdapter, resolve_sandbox_target
+from app.adapters.file_adapter import resolve_sandbox_target
 from app.approvals.models import ApprovalRequest
 from app.core.config import Settings
 from app.core.database import build_session_factory
