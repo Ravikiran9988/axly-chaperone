@@ -13,6 +13,7 @@ correlation_id_var: ContextVar[str | None] = ContextVar("correlation_id", defaul
 
 _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"axly_(?:ag|adm)_[A-Za-z0-9_-]+"),
+    re.compile(r"\bsk-[A-Za-z0-9_-]{16,}"),
     re.compile(r"Bearer\s+[A-Za-z0-9._~+/=-]+", re.IGNORECASE),
     re.compile(
         r"(?i)(x-agent-key|x-admin-key|authorization|api_key|password)\s*[:=]\s*[^\s,;\"']+"
